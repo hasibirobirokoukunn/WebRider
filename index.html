@@ -474,7 +474,7 @@ function update() {
   bestVal.textContent = bestScore;
 
   // Death check
-  if (player.y > canvas.height + 100 || player.x < cameraX - 100) {
+  if (player.y > canvas.height + 200 || player.x < cameraX - 100) {
     endGame();
     return;
   }
