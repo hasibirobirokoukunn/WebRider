@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Spider Swing Game</title>
+<title>Spider Swing</title>
 
 <style>
 body {
@@ -19,28 +19,29 @@ canvas {
     top: 10px;
     left: 10px;
     color: white;
-    font-size: 20px;
     font-family: Arial;
+    font-size: 18px;
 }
 </style>
 </head>
 
 <body>
+
 <div id="ui">SCORE: <span id="score">0</span></div>
-<canvas id="gameCanvas"></canvas>
+<canvas id="game"></canvas>
 
 <script>
-const canvas = document.getElementById("gameCanvas");
+const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
-// 🌍 物理
+// ===== 物理 =====
 const GRAVITY = 0.25;
-const ROPE_STRENGTH = 0.15;
+const ROPE_POWER = 0.15;
 
-// 🧍 プレイヤー（最初から安定）
+// ===== プレイヤー =====
 const player = {
     x: 200,
     y: canvas.height / 2,
@@ -49,10 +50,10 @@ const player = {
     r: 15
 };
 
-// 🎥 カメラ
+// ===== カメラ =====
 let cameraX = 0;
 
-// 🪢 ロープ
+// ===== ロープ =====
 let rope = {
     active: false,
     ax: 0,
@@ -60,39 +61,34 @@ let rope = {
     len: 0
 };
 
-// 🏙 ビル
+// ===== ビル =====
 let buildings = [];
+
 function createBuildings() {
     buildings = [];
 
-    for (let i = 0; i < 30; i++) {
-
-        let windows = [];
-
-        // 窓のON/OFFを最初に決める
-        for (let y = 0; y < 6; y++) {
-            for (let x = 0; x < 3; x++) {
-                windows.push(Math.random() > 0.5);
-            }
-        }
-
+    for (let i = 0; i < 40; i++) {
         buildings.push({
             x: i * 300,
             w: 120,
-            h: 300,
-            windows: windows
+            h: 300 + Math.random() * 200
         });
     }
 }
 
-// 🎮 入力
-window.addEventListener("mousedown", e => shootRope(e.clientX, e.clientY));
+createBuildings();
+
+// ===== スコア =====
+let score = 0;
+
+// ===== 入力 =====
+window.addEventListener("mousedown", (e) => shoot(e.clientX, e.clientY));
 window.addEventListener("mouseup", () => rope.active = false);
-window.addEventListener("touchstart", e => shootRope(e.touches[0].clientX, e.touches[0].clientY));
+window.addEventListener("touchstart", (e) => shoot(e.touches[0].clientX, e.touches[0].clientY));
 window.addEventListener("touchend", () => rope.active = false);
 
-// 🪢 ロープ発射
-function shootRope(mx, my) {
+// ===== ロープ発射 =====
+function shoot(mx, my) {
 
     let dx = mx + cameraX - player.x;
     let dy = my - player.y;
@@ -103,9 +99,7 @@ function shootRope(mx, my) {
     let dxn = dx / dist;
     let dyn = dy / dist;
 
-    let maxDist = 800;
-
-    for (let i = 0; i < maxDist; i += 20) {
+    for (let i = 0; i < 800; i += 20) {
 
         let px = player.x + dxn * i;
         let py = player.y + dyn * i;
@@ -131,13 +125,13 @@ function shootRope(mx, my) {
     }
 }
 
-// 🎮 更新
+// ===== 更新 =====
 function update() {
 
-    // 🌍 重力
+    // 重力
     player.vy += GRAVITY;
 
-    // 🪢 ロープ
+    // ロープ
     if (rope.active) {
         let dx = player.x - rope.ax;
         let dy = player.y - rope.ay;
@@ -150,30 +144,30 @@ function update() {
 
             let stretch = dist - rope.len;
 
-            player.vx -= nx * stretch * ROPE_STRENGTH;
-            player.vy -= ny * stretch * ROPE_STRENGTH;
+            player.vx -= nx * stretch * ROPE_POWER;
+            player.vy -= ny * stretch * ROPE_POWER;
         }
     }
 
-    // 🚶 移動
+    // 移動
     player.x += player.vx;
     player.y += player.vy;
 
-    // 🎥 カメラ
+    // カメラ
     cameraX = player.x - 200;
 
-    // 🏙 無限ビル
+    // 無限ビル
     for (let b of buildings) {
         if (b.x - cameraX < -300) {
             b.x += buildings.length * 300;
         }
     }
 
-    // 📊 スコア
+    // スコア
     score = Math.max(score, Math.floor(player.x / 10));
     document.getElementById("score").innerText = score;
 
-    // 💀 落下リセット
+    // 死亡
     if (player.y > canvas.height + 200) {
         player.x = 200;
         player.y = canvas.height / 2;
@@ -186,7 +180,7 @@ function update() {
     requestAnimationFrame(update);
 }
 
-// 🎨 描画
+// ===== 描画 =====
 function draw() {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -194,25 +188,25 @@ function draw() {
     ctx.save();
     ctx.translate(-cameraX, 0);
 
-    // 🏙 ビル
-    ctx.fillStyle = "#1a252f";
+    // ビル
     for (let b of buildings) {
-        ctx.fillRect(b.x, 0, b.w, canvas.height);
-ctx.fillStyle = "#f1c40f";
 
-let index = 0;
+        ctx.fillStyle = "#1a252f";
+        ctx.fillRect(b.x, 0, b.w, b.h);
 
-for (let wx = b.x + 15; wx < b.x + b.w; wx += 30) {
-    for (let wy = 30; wy < 300; wy += 50) {
+        // 窓（固定でチラつかない）
+        ctx.fillStyle = "#f1c40f";
 
-        if (b.windows[index]) {
-            ctx.fillRect(wx, wy, 8, 12);
+        for (let y = 30; y < b.h; y += 50) {
+            for (let x = 20; x < b.w; x += 30) {
+                if (Math.random() > 0.85) {
+                    ctx.fillRect(b.x + x, y, 8, 12);
+                }
+            }
         }
-
-        index++;
     }
-}
-    // 🪢 ロープ
+
+    // ロープ
     if (rope.active) {
         ctx.strokeStyle = "white";
         ctx.beginPath();
@@ -221,7 +215,7 @@ for (let wx = b.x + 15; wx < b.x + b.w; wx += 30) {
         ctx.stroke();
     }
 
-    // 🧍 プレイヤー
+    // プレイヤー
     ctx.fillStyle = "red";
     ctx.beginPath();
     ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2);
@@ -232,5 +226,6 @@ for (let wx = b.x + 15; wx < b.x + b.w; wx += 30) {
 
 update();
 </script>
+
 </body>
 </html>
