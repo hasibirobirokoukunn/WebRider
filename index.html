@@ -96,29 +96,41 @@
         window.addEventListener("touchstart", (e) => attachRope(e.touches[0].clientX, e.touches[0].clientY));
         window.addEventListener("touchend", detachRope);
 
-        function attachRope(mouseX, mouseY) {
-            // プレイヤーより上にある、一番近いビルを探してウェブを固定する
-            let closestBuilding = null;
-            let minDist = 99999;
+function attachRope(mouseX, mouseY) {
+    let dx = mouseX + cameraX - player.x;
+    let dy = mouseY - player.y;
 
-            buildings.forEach(b => {
-                let anchorX = b.x + b.width / 2;
-                let anchorY = b.y;
-                let dist = Math.hypot(anchorX - player.x, anchorY - player.y);
-                
-                if (dist < minDist && anchorY < player.y) {
-                    minDist = dist;
-                    closestBuilding = b;
-                }
-            });
+    let length = Math.hypot(dx, dy);
+    let dirX = dx / length;
+    let dirY = dy / length;
 
-            if (closestBuilding) {
-                rope.anchorX = closestBuilding.x + closestBuilding.width / 2;
-                rope.anchorY = closestBuilding.y;
-                rope.length = Math.hypot(rope.anchorX - player.x, rope.anchorY - player.y) * ROPE_SLACK;
+    let step = 20;
+    let maxDist = 800;
+
+    for (let i = 0; i < maxDist; i += step) {
+        let checkX = player.x + dirX * i;
+        let checkY = player.y + dirY * i;
+
+        for (let b of buildings) {
+            if (
+                checkX > b.x &&
+                checkX < b.x + b.width &&
+                checkY > b.y &&
+                checkY < canvas.height
+            ) {
+                rope.anchorX = b.x + b.width / 2;
+                rope.anchorY = b.y;
+                rope.length = Math.hypot(
+                    rope.anchorX - player.x,
+                    rope.anchorY - player.y
+                ) * ROPE_SLACK;
+
                 rope.active = true;
+                return;
             }
         }
+    }
+}
 
         function detachRope() {
             rope.active = false;
