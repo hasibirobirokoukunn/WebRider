@@ -139,13 +139,12 @@
                 if (dist > rope.length) {
                     let nx = dx / dist;
                     let ny = dy / dist;
-
-                    // ロープ方向の速度成分を消す
-                    let velAlongNormal = player.vx * nx + player.vy * ny;
-                    if (velAlongNormal > 0) {
-                        player.vx -= velAlongNormal * nx;
-                        player.vy -= velAlongNormal * ny;
-                    }
+// ここ（今の「速度を消す処理」）が弱い
+let velAlongNormal = player.vx * nx + player.vy * ny;
+if (velAlongNormal > 0) {
+    player.vx -= velAlongNormal * nx;
+    player.vy -= velAlongNormal * ny;
+}
 
                     // 位置の強制補正
                     player.x = rope.anchorX + nx * rope.length;
