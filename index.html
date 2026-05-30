@@ -356,6 +356,9 @@ function update() {
         const stretch = dist - rope.len;
         player.vx -= nx * stretch * ROPE_STIFFNESS;
         player.vy -= ny * stretch * ROPE_STIFFNESS;
+
+       player.vx *= 0.98;
+　　　　player.vy *= 0.98;
         
         // ロープで掴んだら前方向に加速
         const boostFactor = Math.min(1, stretch / 80);
