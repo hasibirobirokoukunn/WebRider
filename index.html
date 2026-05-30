@@ -76,10 +76,17 @@
   }
 
   .overlay-hint {
-    font-size: 18px;
-    color: rgba(255, 255, 255, 0.7);
+    font-size: 36px;
+    color: #fff;
     letter-spacing: 2px;
-    animation: blink 1s infinite;
+    animation: pulse 0.5s infinite;
+    font-weight: 900;
+    padding: 30px 60px;
+    border: 4px solid #ffd60a;
+    border-radius: 15px;
+    background: linear-gradient(135deg, rgba(255, 214, 10, 0.3), rgba(255, 100, 10, 0.2));
+    text-shadow: 0 0 30px #ffd60a, 0 0 60px #ff6400;
+    box-shadow: 0 0 40px rgba(255, 214, 10, 0.6), inset 0 0 20px rgba(255, 214, 10, 0.2);
   }
 
   .overlay-score {
@@ -96,12 +103,24 @@
       opacity: 0.3;
     }
   }
+
+  @keyframes pulse {
+    0%, 100% {
+      transform: scale(1);
+      opacity: 1;
+    }
+    50% {
+      transform: scale(1.05);
+      opacity: 0.8;
+    }
+  }
 </style>
 </head>
 <body>
 
 <div id="ui">
   <div>SCORE: <span id="score-val">0</span></div>
+  <div>COINS: <span id="coin-val">0</span></div>
   <div>BEST: <span id="best-val">0</span></div>
 </div>
 
@@ -119,6 +138,7 @@ const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const overlay = document.getElementById('overlay');
 const scoreVal = document.getElementById('score-val');
+const coinVal = document.getElementById('coin-val');
 const bestVal = document.getElementById('best-val');
 const hintEl = document.getElementById('hint');
 const gameoverTextEl = document.getElementById('gameover-text');
@@ -131,12 +151,13 @@ let gameState = 'title'; // title, playing, gameover
 let score = 0;
 let bestScore = localStorage.getItem('spiderSwingBest') ? parseInt(localStorage.getItem('spiderSwingBest')) : 0;
 let frameCount = 0;
+let coinCount = 0;
 
 // Physics constants
-const GRAVITY = 0.4;
-const ROPE_STIFFNESS = 0.16;
-const DAMPING = 0.985;
-const MAX_SPEED = 20;
+const GRAVITY = 0.22;
+const ROPE_STIFFNESS = 0.28;
+const DAMPING = 0.92;
+const MAX_SPEED = 36;
 
 // Player
 let player = {
@@ -335,6 +356,16 @@ function update() {
         const stretch = dist - rope.len;
         player.vx -= nx * stretch * ROPE_STIFFNESS;
         player.vy -= ny * stretch * ROPE_STIFFNESS;
+        
+        // ロープで掴んだら前方向に加速
+        const boostFactor = Math.min(1, stretch / 80);
+        const currentSpeed = Math.hypot(player.vx, player.vy);
+        if (currentSpeed > 0) {
+          const dirX = player.vx / currentSpeed;
+          const dirY = player.vy / currentSpeed;
+          player.vx += dirX * boostFactor * 3.5;
+          player.vy += dirY * boostFactor * 3.5;
+        }
       }
     }
 
@@ -376,9 +407,14 @@ function update() {
     }
   }
 
-  // Spawn drones
-  if (frameCount % Math.max(50, Math.floor(150 / difficulty)) === 0) {
-    spawnDrone(cameraX + canvas.width + 50);
+  // Spawn drones - increase count as score grows
+  const maxDroneCount = Math.min(8, 1 + Math.floor(score / 400));
+  const droneSpawnRate = Math.max(40, Math.floor(180 / difficulty));
+  if (frameCount % droneSpawnRate === 0 && drones.length < maxDroneCount) {
+    const spawnCount = score > 800 ? Math.min(2, maxDroneCount - drones.length) : 1;
+    for (let i = 0; i < spawnCount; i++) {
+      spawnDrone(cameraX + canvas.width + 50 + i * 100);
+    }
   }
 
   // Spawn coins
@@ -389,9 +425,26 @@ function update() {
   // Update drones
   for (let d of drones) {
     d.phase += 0.05;
+    // 上下移動に加えて左右の追跡動作
     d.vy = Math.sin(d.phase) * 1.5;
     d.x += d.vx;
     d.y += d.vy;
+    
+    // プレイヤー方向に少し向きを変える（自分で追ってくる）
+    const dxToPlayer = player.x - d.x;
+    const dyToPlayer = player.y - d.y;
+    const distToPlayer = Math.hypot(dxToPlayer, dyToPlayer);
+    if (distToPlayer > 0 && distToPlayer < 600) {
+      // プレイヤーが近いとき、少し方向を変える
+      d.vx += (dxToPlayer / distToPlayer) * 0.1;
+    }
+  }
+  // Check collision with drones
+  for (let d of drones) {
+    if (Math.hypot(d.x - player.x, d.y - player.y) < d.r + player.r + 8) {
+      endGame();
+      return;
+    }
   }
   drones = drones.filter(d => d.x - cameraX > -200);
 
@@ -490,18 +543,38 @@ function draw() {
     }
   }
 
-  // Coins
+  // Coins - rotating and bobbing
   for (let c of coins) {
-    const cy = c.y + Math.sin(c.bobble) * 3;
+    const cy = c.y + Math.sin(c.bobble) * 5;
+    const rotation = frameCount * 0.05;
 
+    // Coin glow
+    ctx.fillStyle = 'rgba(255, 214, 10, 0.2)';
+    ctx.beginPath();
+    ctx.arc(c.x, cy, c.r + 8, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Coin body with rotation
+    ctx.save();
+    ctx.translate(c.x, cy);
+    ctx.rotate(rotation);
+    
     ctx.fillStyle = '#ffd60a';
     ctx.beginPath();
-    ctx.arc(c.x, cy, c.r, 0, Math.PI * 2);
+    ctx.arc(0, 0, c.r, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.strokeStyle = '#e9c00a';
     ctx.lineWidth = 1.5;
     ctx.stroke();
+    
+    // Coin shine
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.beginPath();
+    ctx.arc(-2, -2, 2, 0, Math.PI * 2);
+    ctx.fill();
+    
+    ctx.restore();
   }
 
   // Drones
@@ -550,41 +623,71 @@ function draw() {
     }
   }
 
-  // Player - Spiderman
+  // Player - Ninja
   ctx.save();
   ctx.translate(player.x, player.y);
+  
+  const angle = Math.atan2(player.vy, player.vx) * 0.3;
+  ctx.rotate(angle);
 
-  // Body
-  ctx.fillStyle = '#c1121f';
+  // Body (purple ninja suit)
+  ctx.fillStyle = '#6a1b9a';
   ctx.beginPath();
-  ctx.ellipse(0, 0, 8, 12, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 1, 9, 14, 0, 0, Math.PI * 2);
   ctx.fill();
 
   // Head
+  ctx.fillStyle = '#6a1b9a';
   ctx.beginPath();
-  ctx.arc(0, -10, 9, 0, Math.PI * 2);
+  ctx.arc(0, -11, 10, 0, Math.PI * 2);
   ctx.fill();
 
-  // Eyes
+  // Ninja mask (darker purple)
+  ctx.fillStyle = '#9c27b0';
+  ctx.beginPath();
+  ctx.ellipse(0, -10, 8, 7, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Eyes (white)
   ctx.fillStyle = 'white';
   ctx.beginPath();
-  ctx.ellipse(-3, -11, 4, 3, -0.3, 0, Math.PI * 2);
+  ctx.arc(-4, -11, 2.5, 0, Math.PI * 2);
   ctx.fill();
   ctx.beginPath();
-  ctx.ellipse(3, -11, 4, 3, 0.3, 0, Math.PI * 2);
+  ctx.arc(4, -11, 2.5, 0, Math.PI * 2);
   ctx.fill();
 
-  // Legs
-  ctx.strokeStyle = '#c1121f';
-  ctx.lineWidth = 2.5;
-  ctx.lineCap = 'round';
+  // Eye shine
+  ctx.fillStyle = '#000';
   ctx.beginPath();
-  ctx.moveTo(-4, 8);
-  ctx.lineTo(-10, 18);
+  ctx.arc(-3.5, -11.5, 1.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(4.5, -11.5, 1.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Arms
+  ctx.strokeStyle = '#6a1b9a';
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(-8, -4);
+  ctx.quadraticCurveTo(-14, 0, -16, 6);
   ctx.stroke();
   ctx.beginPath();
-  ctx.moveTo(4, 8);
-  ctx.lineTo(10, 18);
+  ctx.moveTo(8, -4);
+  ctx.quadraticCurveTo(14, 0, 16, 6);
+  ctx.stroke();
+
+  // Legs (ninja stance)
+  ctx.beginPath();
+  ctx.moveTo(-5, 12);
+  ctx.lineTo(-12, 22);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(5, 12);
+  ctx.lineTo(12, 22);
   ctx.stroke();
 
   ctx.restore();
@@ -600,6 +703,16 @@ function draw() {
   ctx.globalAlpha = 1;
 
   ctx.restore();
+
+  // 死亡ラインを描画（画面下のみ）
+  ctx.strokeStyle = '#ff0000';
+  ctx.lineWidth = 3;
+  ctx.setLineDash([10, 5]);
+  ctx.beginPath();
+  ctx.moveTo(0, canvas.height + 100 - cameraY);
+  ctx.lineTo(canvas.width, canvas.height + 100 - cameraY);
+  ctx.stroke();
+  ctx.setLineDash([]);
 }
 
 function gameLoop() {
