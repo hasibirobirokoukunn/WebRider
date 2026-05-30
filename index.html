@@ -5,245 +5,283 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Spider Swing</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
   body {
-    overflow: hidden; background: #000; font-family: 'Courier New', monospace;
-    user-select: none; -webkit-user-select: none;
+    width: 100%;
+    height: 100vh;
+    overflow: hidden;
+    background: #000;
+    font-family: Arial, sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
     -webkit-touch-callout: none;
   }
-  canvas { display: block; }
+
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
 
   #ui {
     position: absolute;
-    top: 0; left: 0; right: 0;
-    padding: 14px 20px;
+    top: 20px;
+    left: 20px;
+    right: 20px;
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    color: #fff;
+    font-size: 24px;
+    font-weight: bold;
     pointer-events: none;
-    background: linear-gradient(to bottom, rgba(0,0,0,0.7), transparent);
+    z-index: 10;
   }
-  .ui-block { color: #fff; font-size: 13px; letter-spacing: 2px; text-transform: uppercase; }
-  .ui-val { font-size: 26px; font-weight: bold; color: #e63946; display: block; letter-spacing: 1px; }
 
   #overlay {
     position: absolute;
     inset: 0;
+    background: rgba(0, 0, 0, 0.85);
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    background: radial-gradient(ellipse at center, rgba(230,57,70,0.15) 0%, rgba(0,0,0,0.85) 70%);
-    transition: opacity 0.4s;
+    z-index: 100;
+    transition: opacity 0.3s;
   }
-  #overlay.hidden { opacity: 0; pointer-events: none; }
+
+  #overlay.hidden {
+    display: none;
+  }
 
   .overlay-title {
-    font-size: clamp(36px, 8vw, 72px);
-    font-weight: 900;
+    font-size: 60px;
+    font-weight: bold;
     color: #fff;
-    letter-spacing: 6px;
-    text-transform: uppercase;
-    text-shadow: 0 0 40px #e63946, 0 0 80px #e63946aa;
-    margin-bottom: 8px;
+    text-shadow: 0 0 30px #e63946;
+    margin-bottom: 10px;
+    text-align: center;
   }
-  .overlay-sub {
-    font-size: 13px;
-    letter-spacing: 4px;
+
+  .overlay-subtitle {
+    font-size: 16px;
     color: #e63946;
+    letter-spacing: 3px;
     margin-bottom: 50px;
-    text-transform: uppercase;
+    text-align: center;
   }
+
   .overlay-hint {
-    font-size: 15px;
-    color: rgba(255,255,255,0.5);
-    letter-spacing: 3px;
-    text-transform: uppercase;
-    animation: blink 1.4s ease-in-out infinite;
-  }
-  .gameover-score {
     font-size: 18px;
-    color: rgba(255,255,255,0.7);
-    letter-spacing: 3px;
-    margin-bottom: 12px;
+    color: rgba(255, 255, 255, 0.7);
+    letter-spacing: 2px;
+    animation: blink 1s infinite;
   }
-  .gameover-hi {
-    font-size: 13px;
-    color: #e63946;
-    letter-spacing: 3px;
-    margin-bottom: 40px;
+
+  .overlay-score {
+    font-size: 16px;
+    color: rgba(255, 255, 255, 0.6);
+    margin-top: 20px;
   }
 
   @keyframes blink {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.3; }
+    0%, 50%, 100% {
+      opacity: 1;
+    }
+    25%, 75% {
+      opacity: 0.3;
+    }
   }
 </style>
 </head>
 <body>
 
-<canvas id="game"></canvas>
-
 <div id="ui">
-  <div class="ui-block">Score<span class="ui-val" id="score">0</span></div>
-  <div class="ui-block" style="text-align:right">Best<span class="ui-val" id="hiscore">0</span></div>
+  <div>SCORE: <span id="score-val">0</span></div>
+  <div>BEST: <span id="best-val">0</span></div>
 </div>
 
+<canvas id="gameCanvas"></canvas>
+
 <div id="overlay">
-  <div class="overlay-title">Spider<br>Swing</div>
-  <div class="overlay-sub">City Runner</div>
-  <div class="overlay-hint" id="hint-text">Tap to Start</div>
+  <div class="overlay-title">SPIDER<br>SWING</div>
+  <div class="overlay-subtitle">City Runner</div>
+  <div class="overlay-hint" id="hint">Click or Tap to Start</div>
+  <div class="overlay-score" id="gameover-text"></div>
 </div>
 
 <script>
-const canvas = document.getElementById("game");
-const ctx = canvas.getContext("2d");
-const overlay = document.getElementById("overlay");
-const scoreEl = document.getElementById("score");
-const hiscoreEl = document.getElementById("hiscore");
-const hintEl = document.getElementById("hint-text");
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const overlay = document.getElementById('overlay');
+const scoreVal = document.getElementById('score-val');
+const bestVal = document.getElementById('best-val');
+const hintEl = document.getElementById('hint');
+const gameoverTextEl = document.getElementById('gameover-text');
 
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
-// ===== STATE =====
-let state = "title"; // title | playing | dead
+// Game state
+let gameState = 'title'; // title, playing, gameover
 let score = 0;
-let hiScore = 0;
+let bestScore = localStorage.getItem('spiderSwingBest') ? parseInt(localStorage.getItem('spiderSwingBest')) : 0;
 let frameCount = 0;
-let difficulty = 1;
 
-// ===== PHYSICS =====
-const GRAVITY = 0.38;
-const ROPE_STIFFNESS = 0.18;
-const DAMPING = 0.988;
-const MAX_SPEED = 22;
+// Physics constants
+const GRAVITY = 0.4;
+const ROPE_STIFFNESS = 0.16;
+const DAMPING = 0.985;
+const MAX_SPEED = 20;
 
-// ===== PLAYER =====
-let player = {};
-function resetPlayer() {
-  player = {
-    x: 250, y: canvas.height * 0.38,
-    vx: 5, vy: 0,
-    r: 13,
-    dead: false
-  };
-}
-resetPlayer();
+// Player
+let player = {
+  x: 250,
+  y: canvas.height * 0.4,
+  vx: 4,
+  vy: 0,
+  r: 12
+};
 
-// ===== CAMERA =====
+// Camera
 let cameraX = 0;
 let cameraY = 0;
 
-// ===== ROPE =====
-let rope = { active: false, ax: 0, ay: 0, len: 0, progress: 0 };
+// Rope
+let rope = {
+  active: false,
+  ax: 0,
+  ay: 0,
+  len: 0
+};
 
-// ===== BUILDINGS =====
+// Buildings
 let buildings = [];
-const BLDG_SPACING = 280;
-const BLDG_COUNT = 50;
 
 function createBuildings() {
   buildings = [];
-  for (let i = 0; i < BLDG_COUNT; i++) {
-    spawnBuilding(i * BLDG_SPACING);
+  for (let i = 0; i < 50; i++) {
+    const h = 180 + Math.random() * 320;
+    const w = 100 + Math.random() * 70;
+    buildings.push({
+      x: i * 280,
+      y: canvas.height - h,
+      w: w,
+      h: h + canvas.height * 0.4,
+      color: `hsl(${210 + Math.random() * 20}, ${12}%, ${9}%)`,
+      windows: []
+    });
+    for (let j = 0; j < 20; j++) {
+      buildings[i].windows.push(Math.random() > 0.4);
+    }
   }
-}
-
-function spawnBuilding(xPos) {
-  const h = 200 + Math.random() * 300;
-  const w = 110 + Math.random() * 80;
-  const hue = Math.random() < 0.3 ? 200 : 220;
-  // cameraY分だけ余分に高さを足して底が必ず画面外まで届くようにする
-  const totalH = h + canvas.height * 0.4;
-  buildings.push({
-    x: xPos,
-    w,
-    h: totalH,
-    y: canvas.height - h,
-    color: \`hsl(\${hue},\${10 + Math.random()*15}%,\${8 + Math.random()*10}%)\`,
-    accentColor: Math.random() < 0.4 ? \`hsl(\${hue},60%,40%)\` : null,
-    windows: Array.from({ length: 30 }, () => Math.random())
-  });
 }
 
 createBuildings();
 
-// ===== DRONES (enemies) =====
+// Drones
 let drones = [];
+
 function spawnDrone(x) {
   drones.push({
-    x, y: canvas.height * 0.25 + Math.random() * canvas.height * 0.45,
-    vx: -(1.2 + Math.random() * 1.2 * difficulty),
+    x: x,
+    y: canvas.height * 0.3 + Math.random() * canvas.height * 0.4,
+    vx: -(1 + Math.random() * 2),
     vy: 0,
     phase: Math.random() * Math.PI * 2,
-    r: 14,
-    hp: 1
+    r: 12
   });
 }
 
-// ===== COINS =====
+// Coins
 let coins = [];
+
 function spawnCoin(x) {
   coins.push({
-    x, y: canvas.height * 0.2 + Math.random() * canvas.height * 0.5,
-    r: 10,
+    x: x,
+    y: canvas.height * 0.3 + Math.random() * canvas.height * 0.4,
+    r: 8,
     collected: false,
-    anim: 0
+    bobble: Math.random() * Math.PI * 2
   });
 }
 
-// ===== PARTICLES =====
+// Particles
 let particles = [];
-function spawnParticles(x, y, color, count = 12) {
+
+function spawnParticles(x, y, color, count) {
   for (let i = 0; i < count; i++) {
-    const angle = (Math.PI * 2 * i) / count + Math.random() * 0.5;
-    const speed = 2 + Math.random() * 5;
+    const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.4;
+    const speed = 2 + Math.random() * 4;
     particles.push({
-      x, y,
+      x: x,
+      y: y,
       vx: Math.cos(angle) * speed,
-      vy: Math.sin(angle) * speed - 2,
-      r: 2 + Math.random() * 4,
+      vy: Math.sin(angle) * speed - 1.5,
+      r: 2 + Math.random() * 3,
       life: 1,
-      decay: 0.025 + Math.random() * 0.03,
-      color
+      color: color
     });
   }
 }
 
-// ===== WEB TRAIL =====
+// Web trail
 let trail = [];
 
-// ===== INPUT =====
-window.addEventListener("mousedown", e => onInput(e.clientX, e.clientY));
-window.addEventListener("mouseup", () => { rope.active = false; });
-window.addEventListener("touchstart", e => { e.preventDefault(); onInput(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
-window.addEventListener("touchend", () => { rope.active = false; });
+// Input handlers
+document.addEventListener('mousedown', function(e) {
+  handleInput(e.clientX, e.clientY);
+});
 
-function onInput(mx, my) {
-  if (state === "title") {
-    state = "playing";
-    overlay.classList.add("hidden");
-    resetPlayer();
-    score = 0;
-    frameCount = 0;
-    difficulty = 1;
-    coins = [];
-    drones = [];
-    particles = [];
-    trail = [];
-    createBuildings();
+document.addEventListener('touchstart', function(e) {
+  handleInput(e.touches[0].clientX, e.touches[0].clientY);
+}, false);
+
+document.addEventListener('mouseup', function() {
+  rope.active = false;
+});
+
+document.addEventListener('touchend', function() {
+  rope.active = false;
+});
+
+function handleInput(mx, my) {
+  if (gameState === 'title') {
+    startGame();
     return;
   }
-  if (state === "dead") {
-    state = "title";
-    overlay.classList.remove("hidden");
-    hintEl.textContent = "Tap to Restart";
-    document.querySelector(".overlay-sub").textContent = "City Runner";
+  if (gameState === 'gameover') {
+    gameState = 'title';
+    overlay.classList.remove('hidden');
+    hintEl.textContent = 'Click or Tap to Restart';
+    gameoverTextEl.textContent = '';
     return;
   }
-  // shoot rope
+
+  // Shoot rope during gameplay
   shootRope(mx + cameraX, my + cameraY);
+}
+
+function startGame() {
+  gameState = 'playing';
+  overlay.classList.add('hidden');
+  score = 0;
+  frameCount = 0;
+  player.x = 250;
+  player.y = canvas.height * 0.4;
+  player.vx = 4;
+  player.vy = 0;
+  rope.active = false;
+  drones = [];
+  coins = [];
+  particles = [];
+  trail = [];
+  createBuildings();
+  scoreVal.textContent = '0';
 }
 
 function shootRope(wx, wy) {
@@ -251,58 +289,60 @@ function shootRope(wx, wy) {
   const dy = wy - player.y;
   const dist = Math.hypot(dx, dy);
   if (dist < 1) return;
-  const nx = dx / dist, ny = dy / dist;
 
-  for (let i = 20; i < 1400; i += 8) {
+  const nx = dx / dist;
+  const ny = dy / dist;
+
+  for (let i = 30; i < 1200; i += 10) {
     const px = player.x + nx * i;
     const py = player.y + ny * i;
+
     for (let b of buildings) {
-      if (px > b.x && px < b.x + b.w && py > b.y && py < canvas.height) {
+      if (px > b.x && px < b.x + b.w && py > b.y && py < b.y + b.h) {
         rope.ax = b.x + b.w / 2;
-        rope.ay = b.y + 5;
+        rope.ay = b.y;
         rope.len = Math.hypot(rope.ax - player.x, rope.ay - player.y) * 0.92;
         rope.active = true;
-        rope.progress = 0;
         return;
       }
     }
   }
 }
 
-// ===== UPDATE =====
 function update() {
-  frameCount++;
-
-  if (state !== "playing") {
-    // update particles even on title/dead
+  if (gameState !== 'playing') {
     updateParticles();
     return;
   }
 
-  difficulty = 1 + score / 800;
+  frameCount++;
 
-  // Gravity
+  const difficulty = 1 + score / 600;
+
+  // Physics
   player.vy += GRAVITY;
 
-  // Rope physics
   if (rope.active) {
-    rope.progress = Math.min(1, rope.progress + 0.12);
     const dx = player.x - rope.ax;
     const dy = player.y - rope.ay;
     const dist = Math.hypot(dx, dy);
+
     if (dist > 0) {
-      const nx = dx / dist, ny = dy / dist;
+      const nx = dx / dist;
+      const ny = dy / dist;
+
       if (dist > rope.len) {
         const stretch = dist - rope.len;
         player.vx -= nx * stretch * ROPE_STIFFNESS;
         player.vy -= ny * stretch * ROPE_STIFFNESS;
       }
     }
+
     player.vx *= DAMPING;
     player.vy *= DAMPING;
   }
 
-  // Clamp speed
+  // Speed limit
   const spd = Math.hypot(player.vx, player.vy);
   if (spd > MAX_SPEED) {
     player.vx = (player.vx / spd) * MAX_SPEED;
@@ -314,80 +354,72 @@ function update() {
 
   // Web trail
   if (rope.active) {
-    trail.push({ x: player.x, y: player.y, life: 1 });
+    trail.push({x: player.x, y: player.y, life: 1});
   }
-  trail = trail.filter(t => { t.life -= 0.06; return t.life > 0; });
+  trail = trail.filter(t => {
+    t.life -= 0.08;
+    return t.life > 0;
+  });
 
-  // Camera (smooth)
-  const targetCX = player.x - canvas.width * 0.28;
-  const targetCY = player.y - canvas.height * 0.45;
-  cameraX += (targetCX - cameraX) * 0.08;
-  cameraY += (targetCY - cameraY) * 0.06;
+  // Camera follow
+  cameraX += (player.x - 250 - cameraX) * 0.1;
+  cameraY += (player.y - canvas.height * 0.4 - cameraY) * 0.08;
   cameraY = Math.max(0, Math.min(cameraY, canvas.height * 0.3));
 
   // Recycle buildings
   for (let b of buildings) {
-    if (b.x + b.w - cameraX < -200) {
-      b.x += BLDG_COUNT * BLDG_SPACING;
-      const newH = 200 + Math.random() * 300;
-      b.w = 110 + Math.random() * 80;
-      b.h = newH + canvas.height * 0.4; // 底まで届くよう余分に高さを確保
-      b.y = canvas.height - newH;
+    if (b.x - cameraX < -300) {
+      b.x += 50 * 280;
+      b.h = 180 + Math.random() * 320 + canvas.height * 0.4;
+      b.w = 100 + Math.random() * 70;
+      b.y = canvas.height - (180 + Math.random() * 320);
     }
   }
 
-  // Spawn drones & coins
-  // スコアに応じて最大同時出現数を増やす（最大8体）
-  const maxDrones = Math.min(8, 1 + Math.floor(score / 300));
-  const droneInterval = Math.max(40, Math.floor(200 / difficulty));
-  if (frameCount % droneInterval === 0 && drones.length < maxDrones) {
-    // 高スコアでは複数体同時スポーン
-    const spawnCount = score > 1000 ? Math.min(3, maxDrones - drones.length) : 1;
-    for (let s = 0; s < spawnCount; s++) {
-      spawnDrone(cameraX + canvas.width + 100 + s * 80);
-    }
-  }
-  if (frameCount % 90 === 0) {
-    spawnCoin(cameraX + canvas.width * 0.8 + Math.random() * 200);
+  // Spawn drones
+  if (frameCount % Math.max(50, Math.floor(150 / difficulty)) === 0) {
+    spawnDrone(cameraX + canvas.width + 50);
   }
 
-  // Update drones（当たり判定なし・装飾のみ）
+  // Spawn coins
+  if (frameCount % 100 === 0) {
+    spawnCoin(cameraX + canvas.width * 0.7 + Math.random() * 200);
+  }
+
+  // Update drones
   for (let d of drones) {
-    d.phase += 0.04;
+    d.phase += 0.05;
     d.vy = Math.sin(d.phase) * 1.5;
     d.x += d.vx;
     d.y += d.vy;
   }
-  drones = drones.filter(d => d.x - cameraX > -300);
+  drones = drones.filter(d => d.x - cameraX > -200);
 
   // Collect coins
   for (let c of coins) {
-    if (!c.collected && Math.hypot(c.x - player.x, c.y - player.y) < c.r + player.r) {
-      c.collected = true;
-      score += 50;
-      spawnParticles(c.x, c.y, "#ffd60a", 10);
+    if (!c.collected) {
+      if (Math.hypot(c.x - player.x, c.y - player.y) < c.r + player.r) {
+        c.collected = true;
+        score += 50;
+        spawnParticles(c.x, c.y, '#ffd60a', 10);
+      }
     }
-    c.anim += 0.06;
+    c.bobble += 0.08;
   }
   coins = coins.filter(c => !c.collected && c.x - cameraX > -200);
 
-  // Score from distance
-  const distScore = Math.floor(player.x / 10);
-  score = Math.max(score, distScore);
-  if (score > hiScore) hiScore = score;
-  scoreEl.textContent = score;
-  hiscoreEl.textContent = hiScore;
-
-  // Building collision: 削除（地面なし・当たり判定なし）
-
-  // Death: fall off bottom
-  if (player.y > canvas.height + 150) {
-    die();
-    return;
+  // Score
+  score = Math.max(score, Math.floor(player.x / 12));
+  if (score > bestScore) {
+    bestScore = score;
+    localStorage.setItem('spiderSwingBest', bestScore);
   }
-  // Death: go behind camera
-  if (player.x < cameraX - 80) {
-    die();
+  scoreVal.textContent = score;
+  bestVal.textContent = bestScore;
+
+  // Death check
+  if (player.y > canvas.height + 100 || player.x < cameraX - 100) {
+    endGame();
     return;
   }
 
@@ -396,322 +428,166 @@ function update() {
 
 function updateParticles() {
   for (let p of particles) {
-    p.x += p.vx; p.y += p.vy;
-    p.vy += 0.15;
-    p.life -= p.decay;
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vy += 0.2;
+    p.life -= 0.03;
   }
   particles = particles.filter(p => p.life > 0);
 }
 
-function die() {
-  state = "dead";
+function endGame() {
+  gameState = 'gameover';
   rope.active = false;
-  // show overlay
-  const scoreDisplay = overlay.querySelector(".gameover-score") || (() => {
-    const el = document.createElement("div");
-    el.className = "gameover-score";
-    overlay.insertBefore(el, overlay.querySelector(".overlay-hint"));
-    return el;
-  })();
-  const hiDisplay = overlay.querySelector(".gameover-hi") || (() => {
-    const el = document.createElement("div");
-    el.className = "gameover-hi";
-    overlay.insertBefore(el, overlay.querySelector(".overlay-hint"));
-    return el;
-  })();
-  scoreDisplay.textContent = `Score: ${score}`;
-  hiDisplay.textContent = `Best: ${hiScore}`;
-  overlay.querySelector(".overlay-sub").textContent = "Game Over";
-  hintEl.textContent = "Tap to Retry";
-  overlay.classList.remove("hidden");
-}
-
-// ===== DRAW =====
-function drawSpiderman(x, y, vx, vy, ropeActive) {
-  ctx.save();
-  const angle = Math.atan2(vy, vx) * 0.3;
-  ctx.translate(x, y);
-  ctx.rotate(angle);
-
-  // Body
-  ctx.fillStyle = "#c1121f";
-  ctx.beginPath();
-  ctx.ellipse(0, 2, 10, 13, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Web pattern on body
-  ctx.strokeStyle = "rgba(0,0,0,0.4)";
-  ctx.lineWidth = 0.8;
-  for (let i = -2; i <= 2; i++) {
-    ctx.beginPath();
-    ctx.moveTo(i * 4, -13);
-    ctx.lineTo(i * 4, 15);
-    ctx.stroke();
-  }
-
-  // Head
-  ctx.fillStyle = "#c1121f";
-  ctx.beginPath();
-  ctx.arc(0, -12, 10, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Eyes (white lens)
-  ctx.fillStyle = "white";
-  ctx.beginPath();
-  ctx.ellipse(-4, -13, 5, 4, -0.3, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.ellipse(4, -13, 5, 4, 0.3, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Eye outline
-  ctx.strokeStyle = "rgba(0,0,0,0.5)";
-  ctx.lineWidth = 0.8;
-  ctx.beginPath();
-  ctx.ellipse(-4, -13, 5, 4, -0.3, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.ellipse(4, -13, 5, 4, 0.3, 0, Math.PI * 2);
-  ctx.stroke();
-
-  // Legs (stick out when swinging)
-  const legSwing = ropeActive ? Math.sin(frameCount * 0.15) * 0.4 : 0;
-  ctx.strokeStyle = "#c1121f";
-  ctx.lineWidth = 3;
-  ctx.lineCap = "round";
-  // Left arm (toward rope)
-  if (ropeActive) {
-    ctx.beginPath();
-    ctx.moveTo(-6, -8);
-    ctx.lineTo(-18, -22);
-    ctx.stroke();
-  }
-  // Legs
-  ctx.beginPath();
-  ctx.moveTo(-5, 10);
-  ctx.lineTo(-12, 22 + legSwing * 5);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(5, 10);
-  ctx.lineTo(12, 22 - legSwing * 5);
-  ctx.stroke();
-
-  ctx.restore();
-}
-
-function drawBuilding(b) {
-  // Main body
-  ctx.fillStyle = b.color;
-  ctx.fillRect(b.x, b.y, b.w, b.h);
-
-  // Accent top strip
-  if (b.accentColor) {
-    ctx.fillStyle = b.accentColor;
-    ctx.fillRect(b.x, b.y, b.w, 6);
-  }
-
-  // Edge highlights
-  ctx.fillStyle = "rgba(255,255,255,0.04)";
-  ctx.fillRect(b.x, b.y, 3, b.h);
-
-  // Windows
-  const colGap = 28, rowGap = 40;
-  for (let col = 0; col < Math.floor((b.w - 20) / colGap); col++) {
-    for (let row = 0; row < Math.floor((b.h - 40) / rowGap); row++) {
-      const wx = b.x + 14 + col * colGap;
-      const wy = b.y + 30 + row * rowGap;
-      const idx = (col * 7 + row) % b.windows.length;
-      const lit = b.windows[idx];
-      if (lit > 0.6) {
-        // Bright window
-        const grad = ctx.createRadialGradient(wx + 6, wy + 8, 0, wx + 6, wy + 8, 12);
-        grad.addColorStop(0, "rgba(255,240,160,0.9)");
-        grad.addColorStop(1, "rgba(255,200,80,0.2)");
-        ctx.fillStyle = grad;
-        ctx.fillRect(wx, wy, 12, 16);
-      } else if (lit > 0.3) {
-        ctx.fillStyle = "rgba(100,160,255,0.25)";
-        ctx.fillRect(wx, wy, 12, 16);
-      }
-    }
-  }
-}
-
-function drawDrone(d) {
-  ctx.save();
-  ctx.translate(d.x, d.y);
-
-  // Glow
-  const grd = ctx.createRadialGradient(0, 0, 0, 0, 0, 30);
-  grd.addColorStop(0, "rgba(255,50,50,0.3)");
-  grd.addColorStop(1, "rgba(255,50,50,0)");
-  ctx.fillStyle = grd;
-  ctx.beginPath();
-  ctx.arc(0, 0, 30, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Body
-  ctx.fillStyle = "#2d2d2d";
-  ctx.strokeStyle = "#ff3333";
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.rect(-12, -6, 24, 12);
-  ctx.fill();
-  ctx.stroke();
-
-  // Eye
-  ctx.fillStyle = "#ff3333";
-  ctx.beginPath();
-  ctx.arc(0, 0, 4, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Rotors
-  ctx.strokeStyle = "rgba(255,255,255,0.4)";
-  ctx.lineWidth = 1;
-  const rotAngle = frameCount * 0.3;
-  for (let i = 0; i < 4; i++) {
-    const a = rotAngle + i * Math.PI / 2;
-    ctx.save();
-    ctx.translate(i < 2 ? -14 : 14, i % 2 === 0 ? -8 : 8);
-    ctx.rotate(a);
-    ctx.beginPath();
-    ctx.moveTo(-8, 0); ctx.lineTo(8, 0);
-    ctx.stroke();
-    ctx.restore();
-  }
-  ctx.restore();
-}
-
-function drawCoin(c) {
-  ctx.save();
-  ctx.translate(c.x, c.y + Math.sin(c.anim) * 5);
-
-  // Glow
-  const grd = ctx.createRadialGradient(0, 0, 0, 0, 0, 20);
-  grd.addColorStop(0, "rgba(255,214,10,0.5)");
-  grd.addColorStop(1, "rgba(255,214,10,0)");
-  ctx.fillStyle = grd;
-  ctx.beginPath();
-  ctx.arc(0, 0, 20, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Coin
-  ctx.fillStyle = "#ffd60a";
-  ctx.strokeStyle = "#e9c00a";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.arc(0, 0, c.r, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.fillStyle = "#c8a200";
-  ctx.font = "bold 10px monospace";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("$", 0, 0);
-  ctx.restore();
+  overlay.classList.remove('hidden');
+  hintEl.textContent = 'Click or Tap to Restart';
+  gameoverTextEl.textContent = 'Score: ' + score + ' | Best: ' + bestScore;
 }
 
 function draw() {
-  // Sky gradient (shifts with camera)
-  const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
-  grad.addColorStop(0, "#04080f");
-  grad.addColorStop(0.6, "#0d1b2a");
-  grad.addColorStop(1, "#1b2a3b");
-  ctx.fillStyle = grad;
+  // Background
+  const bgGrad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  bgGrad.addColorStop(0, '#0a0e1a');
+  bgGrad.addColorStop(0.5, '#0d1628');
+  bgGrad.addColorStop(1, '#132238');
+  ctx.fillStyle = bgGrad;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   // Stars
-  ctx.fillStyle = "rgba(255,255,255,0.6)";
-  for (let i = 0; i < 80; i++) {
-    const sx = ((i * 137 + 50) % canvas.width);
-    const sy = ((i * 93 + 20) % (canvas.height * 0.6));
-    const flicker = 0.3 + 0.7 * Math.abs(Math.sin(frameCount * 0.01 + i));
-    ctx.globalAlpha = flicker * 0.5;
-    ctx.fillRect(sx, sy, 1.5, 1.5);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+  for (let i = 0; i < 100; i++) {
+    const sx = (i * 137 + 50) % canvas.width;
+    const sy = (i * 89 + 30) % (canvas.height * 0.6);
+    ctx.fillRect(sx, sy, 1, 1);
   }
-  ctx.globalAlpha = 1;
 
   ctx.save();
   ctx.translate(-cameraX, -cameraY);
+
+  // Buildings
+  for (let b of buildings) {
+    if (b.x - cameraX < canvas.width + 200 && b.x + b.w - cameraX > -200) {
+      ctx.fillStyle = b.color;
+      ctx.fillRect(b.x, b.y, b.w, b.h);
+
+      // Windows
+      const colGap = 25;
+      const rowGap = 35;
+      for (let col = 0; col < Math.floor(b.w / colGap); col++) {
+        for (let row = 0; row < Math.floor((b.h - 60) / rowGap); row++) {
+          const wx = b.x + 12 + col * colGap;
+          const wy = b.y + 35 + row * rowGap;
+          const lit = b.windows[(col * 5 + row) % b.windows.length];
+
+          if (lit) {
+            ctx.fillStyle = 'rgba(255, 220, 120, 0.7)';
+          } else {
+            ctx.fillStyle = 'rgba(40, 80, 140, 0.3)';
+          }
+          ctx.fillRect(wx, wy, 10, 14);
+        }
+      }
+    }
+  }
+
+  // Coins
+  for (let c of coins) {
+    const cy = c.y + Math.sin(c.bobble) * 3;
+
+    ctx.fillStyle = '#ffd60a';
+    ctx.beginPath();
+    ctx.arc(c.x, cy, c.r, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = '#e9c00a';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
+  // Drones
+  for (let d of drones) {
+    ctx.fillStyle = 'rgba(255, 50, 50, 0.2)';
+    ctx.beginPath();
+    ctx.arc(d.x, d.y, 25, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#2d2d2d';
+    ctx.fillRect(d.x - 10, d.y - 5, 20, 10);
+
+    ctx.fillStyle = '#ff3333';
+    ctx.beginPath();
+    ctx.arc(d.x, d.y, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Rope
+  if (rope.active) {
+    ctx.strokeStyle = 'rgba(200, 240, 255, 0.8)';
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(player.x, player.y);
+    ctx.lineTo(rope.ax, rope.ay);
+    ctx.stroke();
+
+    ctx.fillStyle = '#88ccff';
+    ctx.beginPath();
+    ctx.arc(rope.ax, rope.ay, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
   // Web trail
   if (trail.length > 1) {
     for (let i = 1; i < trail.length; i++) {
       const t = trail[i];
-      ctx.strokeStyle = `rgba(200,230,255,${t.life * 0.4})`;
-      ctx.lineWidth = t.life * 2;
-      ctx.lineCap = "round";
+      ctx.strokeStyle = 'rgba(150, 200, 255, ' + (t.life * 0.3) + ')';
+      ctx.lineWidth = t.life * 1.5;
+      ctx.lineCap = 'round';
       ctx.beginPath();
-      ctx.moveTo(trail[i-1].x, trail[i-1].y);
+      ctx.moveTo(trail[i - 1].x, trail[i - 1].y);
       ctx.lineTo(t.x, t.y);
       ctx.stroke();
     }
   }
 
-  // Buildings
-  for (let b of buildings) {
-    if (b.x - cameraX < canvas.width + 200 && b.x + b.w - cameraX > -200) {
-      drawBuilding(b);
-    }
-  }
+  // Player - Spiderman
+  ctx.save();
+  ctx.translate(player.x, player.y);
 
-  // Coins
-  for (let c of coins) drawCoin(c);
+  // Body
+  ctx.fillStyle = '#c1121f';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 8, 12, 0, 0, Math.PI * 2);
+  ctx.fill();
 
-  // Drones
-  for (let d of drones) drawDrone(d);
+  // Head
+  ctx.beginPath();
+  ctx.arc(0, -10, 9, 0, Math.PI * 2);
+  ctx.fill();
 
-  // Rope
-  if (rope.active) {
-    const segments = 16;
-    const px = player.x, py = player.y;
-    const ax = rope.ax, ay = rope.ay;
+  // Eyes
+  ctx.fillStyle = 'white';
+  ctx.beginPath();
+  ctx.ellipse(-3, -11, 4, 3, -0.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(3, -11, 4, 3, 0.3, 0, Math.PI * 2);
+  ctx.fill();
 
-    // Glow
-    ctx.strokeStyle = "rgba(150,220,255,0.15)";
-    ctx.lineWidth = 8;
-    ctx.beginPath();
-    ctx.moveTo(px, py);
-    for (let i = 1; i <= segments; i++) {
-      const t = i / segments;
-      const sag = Math.sin(t * Math.PI) * 18 * (1 - rope.progress);
-      ctx.lineTo(px + (ax - px) * t, py + (ay - py) * t + sag);
-    }
-    ctx.stroke();
+  // Legs
+  ctx.strokeStyle = '#c1121f';
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(-4, 8);
+  ctx.lineTo(-10, 18);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(4, 8);
+  ctx.lineTo(10, 18);
+  ctx.stroke();
 
-    // Main rope
-    ctx.strokeStyle = "rgba(220,240,255,0.85)";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(px, py);
-    for (let i = 1; i <= segments; i++) {
-      const t = i / segments;
-      const sag = Math.sin(t * Math.PI) * 10 * (1 - rope.progress);
-      ctx.lineTo(px + (ax - px) * t, py + (ay - py) * t + sag);
-    }
-    ctx.stroke();
-
-    // Anchor dot
-    ctx.fillStyle = "#88ccff";
-    ctx.beginPath();
-    ctx.arc(ax, ay, 4, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // Player
-  if (state === "playing") {
-    // Player glow
-    const pgrd = ctx.createRadialGradient(player.x, player.y, 0, player.x, player.y, 35);
-    pgrd.addColorStop(0, "rgba(230,57,70,0.3)");
-    pgrd.addColorStop(1, "rgba(230,57,70,0)");
-    ctx.fillStyle = pgrd;
-    ctx.beginPath();
-    ctx.arc(player.x, player.y, 35, 0, Math.PI * 2);
-    ctx.fill();
-
-    drawSpiderman(player.x, player.y, player.vx, player.vy, rope.active);
-  }
+  ctx.restore();
 
   // Particles
   for (let p of particles) {
@@ -724,41 +600,22 @@ function draw() {
   ctx.globalAlpha = 1;
 
   ctx.restore();
-
-  // Speed lines (at high velocity)
-  if (state === "playing") {
-    const spd = Math.hypot(player.vx, player.vy);
-    if (spd > 14) {
-      const alpha = (spd - 14) / 12;
-      ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.08})`;
-      ctx.lineWidth = 1;
-      for (let i = 0; i < 8; i++) {
-        const lx = Math.random() * canvas.width;
-        const ly = Math.random() * canvas.height;
-        const len = 40 + Math.random() * 80;
-        const ang = Math.atan2(player.vy, player.vx);
-        ctx.beginPath();
-        ctx.moveTo(lx, ly);
-        ctx.lineTo(lx - Math.cos(ang) * len, ly - Math.sin(ang) * len);
-        ctx.stroke();
-      }
-    }
-  }
 }
 
-// ===== LOOP =====
-function loop() {
+function gameLoop() {
   update();
   draw();
-  requestAnimationFrame(loop);
+  requestAnimationFrame(gameLoop);
 }
 
-window.addEventListener("resize", () => {
+window.addEventListener('resize', () => {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
 });
 
-loop();
+bestVal.textContent = bestScore;
+gameLoop();
 </script>
+
 </body>
 </html>
