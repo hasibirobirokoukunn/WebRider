@@ -3,252 +3,762 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Spider Swing - Fixed</title>
-
+<title>Spider Swing</title>
 <style>
-body {
-    margin: 0;
-    overflow: hidden;
-    background: linear-gradient(to bottom, #0f2027, #203a43, #2c5364);
-}
-canvas {
-    display: block;
-}
-#ui {
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    overflow: hidden; background: #000; font-family: 'Courier New', monospace;
+    user-select: none; -webkit-user-select: none;
+    -webkit-touch-callout: none; touch-action: none;
+  }
+  canvas { display: block; }
+
+  #ui {
     position: absolute;
-    top: 10px;
-    left: 10px;
-    color: white;
-    font-family: Arial;
+    top: 0; left: 0; right: 0;
+    padding: 14px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    pointer-events: none;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.7), transparent);
+  }
+  .ui-block { color: #fff; font-size: 13px; letter-spacing: 2px; text-transform: uppercase; }
+  .ui-val { font-size: 26px; font-weight: bold; color: #e63946; display: block; letter-spacing: 1px; }
+
+  #overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(ellipse at center, rgba(230,57,70,0.15) 0%, rgba(0,0,0,0.85) 70%);
+    transition: opacity 0.4s;
+  }
+  #overlay.hidden { opacity: 0; pointer-events: none; }
+
+  .overlay-title {
+    font-size: clamp(36px, 8vw, 72px);
+    font-weight: 900;
+    color: #fff;
+    letter-spacing: 6px;
+    text-transform: uppercase;
+    text-shadow: 0 0 40px #e63946, 0 0 80px #e63946aa;
+    margin-bottom: 8px;
+  }
+  .overlay-sub {
+    font-size: 13px;
+    letter-spacing: 4px;
+    color: #e63946;
+    margin-bottom: 50px;
+    text-transform: uppercase;
+  }
+  .overlay-hint {
+    font-size: 15px;
+    color: rgba(255,255,255,0.5);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    animation: blink 1.4s ease-in-out infinite;
+  }
+  .gameover-score {
     font-size: 18px;
-    font-weight: bold;
-    text-shadow: 1px 1px 2px black;
-}
+    color: rgba(255,255,255,0.7);
+    letter-spacing: 3px;
+    margin-bottom: 12px;
+  }
+  .gameover-hi {
+    font-size: 13px;
+    color: #e63946;
+    letter-spacing: 3px;
+    margin-bottom: 40px;
+  }
+
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
 </style>
 </head>
-
 <body>
 
-<div id="ui">SCORE: <span id="score">0</span></div>
 <canvas id="game"></canvas>
+
+<div id="ui">
+  <div class="ui-block">Score<span class="ui-val" id="score">0</span></div>
+  <div class="ui-block" style="text-align:right">Best<span class="ui-val" id="hiscore">0</span></div>
+</div>
+
+<div id="overlay">
+  <div class="overlay-title">Spider<br>Swing</div>
+  <div class="overlay-sub">City Runner</div>
+  <div class="overlay-hint" id="hint-text">Tap to Start</div>
+</div>
 
 <script>
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
+const overlay = document.getElementById("overlay");
+const scoreEl = document.getElementById("score");
+const hiscoreEl = document.getElementById("hiscore");
+const hintEl = document.getElementById("hint-text");
 
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
-// ===== 物理 =====
-const GRAVITY = 0.3;       // 重力を少し強めて自然に
-const ROPE_POWER = 0.2;    // ロープの引っ張り強度
+// ===== STATE =====
+let state = "title"; // title | playing | dead
+let score = 0;
+let hiScore = 0;
+let frameCount = 0;
+let difficulty = 1;
 
-// ===== プレイヤー =====
-const player = {
-    x: 200,
-    y: canvas.height / 2,
-    vx: 5,
-    vy: 0,
-    r: 15
-};
+// ===== PHYSICS =====
+const GRAVITY = 0.38;
+const ROPE_STIFFNESS = 0.18;
+const DAMPING = 0.988;
+const MAX_SPEED = 22;
 
-// ===== カメラ =====
+// ===== PLAYER =====
+let player = {};
+function resetPlayer() {
+  player = {
+    x: 250, y: canvas.height * 0.38,
+    vx: 5, vy: 0,
+    r: 13,
+    dead: false
+  };
+}
+resetPlayer();
+
+// ===== CAMERA =====
 let cameraX = 0;
+let cameraY = 0;
 
-// ===== ロープ =====
-let rope = {
-    active: false,
-    ax: 0,
-    ay: 0,
-    len: 0
-};
+// ===== ROPE =====
+let rope = { active: false, ax: 0, ay: 0, len: 0, progress: 0 };
 
-// ===== ビル =====
+// ===== BUILDINGS =====
 let buildings = [];
+const BLDG_SPACING = 280;
+const BLDG_COUNT = 50;
 
 function createBuildings() {
-    buildings = [];
-    for (let i = 0; i < 40; i++) {
-        let bHeight = 250 + Math.random() * 250; // ビルの高さ
-        buildings.push({
-            x: i * 300,
-            w: 140,
-            h: bHeight,
-            y: canvas.height - bHeight, // 画面の下から生えるように計算
-            // 窓の配置をあらかじめデータとして持たせてチラつきを防止
-            windows: Array.from({length: 8}, () => Math.random() > 0.4) 
-        });
-    }
+  buildings = [];
+  for (let i = 0; i < BLDG_COUNT; i++) {
+    spawnBuilding(i * BLDG_SPACING);
+  }
+}
+
+function spawnBuilding(xPos) {
+  const h = 200 + Math.random() * 300;
+  const w = 110 + Math.random() * 80;
+  const hue = Math.random() < 0.3 ? 200 : 220;
+  // cameraY分だけ余分に高さを足して底が必ず画面外まで届くようにする
+  const totalH = h + canvas.height * 0.4;
+  buildings.push({
+    x: xPos,
+    w,
+    h: totalH,
+    y: canvas.height - h,
+    color: \`hsl(\${hue},\${10 + Math.random()*15}%,\${8 + Math.random()*10}%)\`,
+    accentColor: Math.random() < 0.4 ? \`hsl(\${hue},60%,40%)\` : null,
+    windows: Array.from({ length: 30 }, () => Math.random())
+  });
 }
 
 createBuildings();
 
-// ===== スコア =====
-let score = 0;
-
-// ===== 入力 =====
-window.addEventListener("mousedown", (e) => shoot(e.clientX, e.clientY));
-window.addEventListener("mouseup", () => rope.active = false);
-window.addEventListener("touchstart", (e) => shoot(e.touches[0].clientX, e.touches[0].clientY));
-window.addEventListener("touchend", () => rope.active = false);
-
-// ===== ロープ発射 =====
-function shoot(mx, my) {
-    // クリックした画面の座標を、ゲーム内の絶対座標に変換
-    let targetX = mx + cameraX;
-    let targetY = my;
-
-    let dx = targetX - player.x;
-    let dy = targetY - player.y;
-
-    let dist = Math.hypot(dx, dy);
-    if (dist === 0) return;
-
-    let dxn = dx / dist;
-    let dyn = dy / dist;
-
-    // プレイヤーからクリック方向へ少しずつ探索（レイキャスト）
-    for (let i = 0; i < 1000; i += 10) {
-        let px = player.x + dxn * i;
-        let py = player.y + dyn * i;
-
-        for (let b of buildings) {
-            // 線がビルの範囲（上部含む）に入ったか判定
-            if (px > b.x && px < b.x + b.w && py > b.y && py < canvas.height) {
-                // ビルの屋上の中心にロープを固定
-                rope.ax = b.x + b.w / 2;
-                rope.ay = b.y;
-                rope.len = Math.hypot(rope.ax - player.x, rope.ay - player.y) * 1.05;
-                rope.active = true;
-                return;
-            }
-        }
-    }
+// ===== DRONES (enemies) =====
+let drones = [];
+function spawnDrone(x) {
+  drones.push({
+    x, y: canvas.height * 0.25 + Math.random() * canvas.height * 0.45,
+    vx: -(1.2 + Math.random() * 1.2 * difficulty),
+    vy: 0,
+    phase: Math.random() * Math.PI * 2,
+    r: 14,
+    hp: 1
+  });
 }
 
-// ===== 更新 =====
+// ===== COINS =====
+let coins = [];
+function spawnCoin(x) {
+  coins.push({
+    x, y: canvas.height * 0.2 + Math.random() * canvas.height * 0.5,
+    r: 10,
+    collected: false,
+    anim: 0
+  });
+}
+
+// ===== PARTICLES =====
+let particles = [];
+function spawnParticles(x, y, color, count = 12) {
+  for (let i = 0; i < count; i++) {
+    const angle = (Math.PI * 2 * i) / count + Math.random() * 0.5;
+    const speed = 2 + Math.random() * 5;
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 2,
+      r: 2 + Math.random() * 4,
+      life: 1,
+      decay: 0.025 + Math.random() * 0.03,
+      color
+    });
+  }
+}
+
+// ===== WEB TRAIL =====
+let trail = [];
+
+// ===== INPUT =====
+window.addEventListener("mousedown", e => onInput(e.clientX, e.clientY));
+window.addEventListener("mouseup", () => { rope.active = false; });
+window.addEventListener("touchstart", e => { e.preventDefault(); onInput(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
+window.addEventListener("touchend", () => { rope.active = false; });
+
+function onInput(mx, my) {
+  if (state === "title") {
+    state = "playing";
+    overlay.classList.add("hidden");
+    resetPlayer();
+    score = 0;
+    frameCount = 0;
+    difficulty = 1;
+    coins = [];
+    drones = [];
+    particles = [];
+    trail = [];
+    createBuildings();
+    return;
+  }
+  if (state === "dead") {
+    state = "title";
+    overlay.classList.remove("hidden");
+    hintEl.textContent = "Tap to Restart";
+    document.querySelector(".overlay-sub").textContent = "City Runner";
+    return;
+  }
+  // shoot rope
+  shootRope(mx + cameraX, my + cameraY);
+}
+
+function shootRope(wx, wy) {
+  const dx = wx - player.x;
+  const dy = wy - player.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 1) return;
+  const nx = dx / dist, ny = dy / dist;
+
+  for (let i = 20; i < 1400; i += 8) {
+    const px = player.x + nx * i;
+    const py = player.y + ny * i;
+    for (let b of buildings) {
+      if (px > b.x && px < b.x + b.w && py > b.y && py < canvas.height) {
+        rope.ax = b.x + b.w / 2;
+        rope.ay = b.y + 5;
+        rope.len = Math.hypot(rope.ax - player.x, rope.ay - player.y) * 0.92;
+        rope.active = true;
+        rope.progress = 0;
+        return;
+      }
+    }
+  }
+}
+
+// ===== UPDATE =====
 function update() {
-    // 重力
-    player.vy += GRAVITY;
+  frameCount++;
 
-    // ロープ物理
-    if (rope.active) {
-        let dx = player.x - rope.ax;
-        let dy = player.y - rope.ay;
-        let dist = Math.hypot(dx, dy);
+  if (state !== "playing") {
+    // update particles even on title/dead
+    updateParticles();
+    return;
+  }
 
-        // ロープの長さを超えたら引っ張る力を加える
-        if (dist > rope.len) {
-            let nx = dx / dist;
-            let ny = dy / dist;
-            let stretch = dist - rope.len;
+  difficulty = 1 + score / 800;
 
-            player.vx -= nx * stretch * ROPE_POWER;
-            player.vy -= ny * stretch * ROPE_POWER;
-            
-            // スイング中の空気抵抗（これがあると動きが安定します）
-            player.vx *= 0.995;
-            player.vy *= 0.995;
-        }
+  // Gravity
+  player.vy += GRAVITY;
+
+  // Rope physics
+  if (rope.active) {
+    rope.progress = Math.min(1, rope.progress + 0.12);
+    const dx = player.x - rope.ax;
+    const dy = player.y - rope.ay;
+    const dist = Math.hypot(dx, dy);
+    if (dist > 0) {
+      const nx = dx / dist, ny = dy / dist;
+      if (dist > rope.len) {
+        const stretch = dist - rope.len;
+        player.vx -= nx * stretch * ROPE_STIFFNESS;
+        player.vy -= ny * stretch * ROPE_STIFFNESS;
+      }
     }
+    player.vx *= DAMPING;
+    player.vy *= DAMPING;
+  }
 
-    // 移動
-    player.x += player.vx;
-    player.y += player.vy;
+  // Clamp speed
+  const spd = Math.hypot(player.vx, player.vy);
+  if (spd > MAX_SPEED) {
+    player.vx = (player.vx / spd) * MAX_SPEED;
+    player.vy = (player.vy / spd) * MAX_SPEED;
+  }
 
-    // カメラの追従
-    cameraX = player.x - 200;
+  player.x += player.vx;
+  player.y += player.vy;
 
-    // 無限ビル（通り過ぎたら前方に移動）
-    for (let b of buildings) {
-        if (b.x - cameraX < -300) {
-            b.x += buildings.length * 300;
-        }
+  // Web trail
+  if (rope.active) {
+    trail.push({ x: player.x, y: player.y, life: 1 });
+  }
+  trail = trail.filter(t => { t.life -= 0.06; return t.life > 0; });
+
+  // Camera (smooth)
+  const targetCX = player.x - canvas.width * 0.28;
+  const targetCY = player.y - canvas.height * 0.45;
+  cameraX += (targetCX - cameraX) * 0.08;
+  cameraY += (targetCY - cameraY) * 0.06;
+  cameraY = Math.max(0, Math.min(cameraY, canvas.height * 0.3));
+
+  // Recycle buildings
+  for (let b of buildings) {
+    if (b.x + b.w - cameraX < -200) {
+      b.x += BLDG_COUNT * BLDG_SPACING;
+      const newH = 200 + Math.random() * 300;
+      b.w = 110 + Math.random() * 80;
+      b.h = newH + canvas.height * 0.4; // 底まで届くよう余分に高さを確保
+      b.y = canvas.height - newH;
     }
+  }
 
-    // スコア
-    score = Math.max(score, Math.floor(player.x / 10));
-    document.getElementById("score").innerText = score;
-
-    // 死亡判定（画面下に落ちたらリセット）
-    if (player.y > canvas.height + 100) {
-        player.x = 200;
-        player.y = canvas.height / 2;
-        player.vx = 5;
-        player.vy = 0;
-        rope.active = false;
-        createBuildings(); // ビルを再配置
+  // Spawn drones & coins
+  // スコアに応じて最大同時出現数を増やす（最大8体）
+  const maxDrones = Math.min(8, 1 + Math.floor(score / 300));
+  const droneInterval = Math.max(40, Math.floor(200 / difficulty));
+  if (frameCount % droneInterval === 0 && drones.length < maxDrones) {
+    // 高スコアでは複数体同時スポーン
+    const spawnCount = score > 1000 ? Math.min(3, maxDrones - drones.length) : 1;
+    for (let s = 0; s < spawnCount; s++) {
+      spawnDrone(cameraX + canvas.width + 100 + s * 80);
     }
+  }
+  if (frameCount % 90 === 0) {
+    spawnCoin(cameraX + canvas.width * 0.8 + Math.random() * 200);
+  }
 
-    draw();
-    requestAnimationFrame(update);
+  // Update drones（当たり判定なし・装飾のみ）
+  for (let d of drones) {
+    d.phase += 0.04;
+    d.vy = Math.sin(d.phase) * 1.5;
+    d.x += d.vx;
+    d.y += d.vy;
+  }
+  drones = drones.filter(d => d.x - cameraX > -300);
+
+  // Collect coins
+  for (let c of coins) {
+    if (!c.collected && Math.hypot(c.x - player.x, c.y - player.y) < c.r + player.r) {
+      c.collected = true;
+      score += 50;
+      spawnParticles(c.x, c.y, "#ffd60a", 10);
+    }
+    c.anim += 0.06;
+  }
+  coins = coins.filter(c => !c.collected && c.x - cameraX > -200);
+
+  // Score from distance
+  const distScore = Math.floor(player.x / 10);
+  score = Math.max(score, distScore);
+  if (score > hiScore) hiScore = score;
+  scoreEl.textContent = score;
+  hiscoreEl.textContent = hiScore;
+
+  // Building collision: 削除（地面なし・当たり判定なし）
+
+  // Death: fall off bottom
+  if (player.y > canvas.height + 150) {
+    die();
+    return;
+  }
+  // Death: go behind camera
+  if (player.x < cameraX - 80) {
+    die();
+    return;
+  }
+
+  updateParticles();
 }
 
-// ===== 描画 =====
-function draw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+function updateParticles() {
+  for (let p of particles) {
+    p.x += p.vx; p.y += p.vy;
+    p.vy += 0.15;
+    p.life -= p.decay;
+  }
+  particles = particles.filter(p => p.life > 0);
+}
 
+function die() {
+  state = "dead";
+  rope.active = false;
+  // show overlay
+  const scoreDisplay = overlay.querySelector(".gameover-score") || (() => {
+    const el = document.createElement("div");
+    el.className = "gameover-score";
+    overlay.insertBefore(el, overlay.querySelector(".overlay-hint"));
+    return el;
+  })();
+  const hiDisplay = overlay.querySelector(".gameover-hi") || (() => {
+    const el = document.createElement("div");
+    el.className = "gameover-hi";
+    overlay.insertBefore(el, overlay.querySelector(".overlay-hint"));
+    return el;
+  })();
+  scoreDisplay.textContent = `Score: ${score}`;
+  hiDisplay.textContent = `Best: ${hiScore}`;
+  overlay.querySelector(".overlay-sub").textContent = "Game Over";
+  hintEl.textContent = "Tap to Retry";
+  overlay.classList.remove("hidden");
+}
+
+// ===== DRAW =====
+function drawSpiderman(x, y, vx, vy, ropeActive) {
+  ctx.save();
+  const angle = Math.atan2(vy, vx) * 0.3;
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+
+  // Body
+  ctx.fillStyle = "#c1121f";
+  ctx.beginPath();
+  ctx.ellipse(0, 2, 10, 13, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Web pattern on body
+  ctx.strokeStyle = "rgba(0,0,0,0.4)";
+  ctx.lineWidth = 0.8;
+  for (let i = -2; i <= 2; i++) {
+    ctx.beginPath();
+    ctx.moveTo(i * 4, -13);
+    ctx.lineTo(i * 4, 15);
+    ctx.stroke();
+  }
+
+  // Head
+  ctx.fillStyle = "#c1121f";
+  ctx.beginPath();
+  ctx.arc(0, -12, 10, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Eyes (white lens)
+  ctx.fillStyle = "white";
+  ctx.beginPath();
+  ctx.ellipse(-4, -13, 5, 4, -0.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(4, -13, 5, 4, 0.3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Eye outline
+  ctx.strokeStyle = "rgba(0,0,0,0.5)";
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  ctx.ellipse(-4, -13, 5, 4, -0.3, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.ellipse(4, -13, 5, 4, 0.3, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Legs (stick out when swinging)
+  const legSwing = ropeActive ? Math.sin(frameCount * 0.15) * 0.4 : 0;
+  ctx.strokeStyle = "#c1121f";
+  ctx.lineWidth = 3;
+  ctx.lineCap = "round";
+  // Left arm (toward rope)
+  if (ropeActive) {
+    ctx.beginPath();
+    ctx.moveTo(-6, -8);
+    ctx.lineTo(-18, -22);
+    ctx.stroke();
+  }
+  // Legs
+  ctx.beginPath();
+  ctx.moveTo(-5, 10);
+  ctx.lineTo(-12, 22 + legSwing * 5);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(5, 10);
+  ctx.lineTo(12, 22 - legSwing * 5);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawBuilding(b) {
+  // Main body
+  ctx.fillStyle = b.color;
+  ctx.fillRect(b.x, b.y, b.w, b.h);
+
+  // Accent top strip
+  if (b.accentColor) {
+    ctx.fillStyle = b.accentColor;
+    ctx.fillRect(b.x, b.y, b.w, 6);
+  }
+
+  // Edge highlights
+  ctx.fillStyle = "rgba(255,255,255,0.04)";
+  ctx.fillRect(b.x, b.y, 3, b.h);
+
+  // Windows
+  const colGap = 28, rowGap = 40;
+  for (let col = 0; col < Math.floor((b.w - 20) / colGap); col++) {
+    for (let row = 0; row < Math.floor((b.h - 40) / rowGap); row++) {
+      const wx = b.x + 14 + col * colGap;
+      const wy = b.y + 30 + row * rowGap;
+      const idx = (col * 7 + row) % b.windows.length;
+      const lit = b.windows[idx];
+      if (lit > 0.6) {
+        // Bright window
+        const grad = ctx.createRadialGradient(wx + 6, wy + 8, 0, wx + 6, wy + 8, 12);
+        grad.addColorStop(0, "rgba(255,240,160,0.9)");
+        grad.addColorStop(1, "rgba(255,200,80,0.2)");
+        ctx.fillStyle = grad;
+        ctx.fillRect(wx, wy, 12, 16);
+      } else if (lit > 0.3) {
+        ctx.fillStyle = "rgba(100,160,255,0.25)";
+        ctx.fillRect(wx, wy, 12, 16);
+      }
+    }
+  }
+}
+
+function drawDrone(d) {
+  ctx.save();
+  ctx.translate(d.x, d.y);
+
+  // Glow
+  const grd = ctx.createRadialGradient(0, 0, 0, 0, 0, 30);
+  grd.addColorStop(0, "rgba(255,50,50,0.3)");
+  grd.addColorStop(1, "rgba(255,50,50,0)");
+  ctx.fillStyle = grd;
+  ctx.beginPath();
+  ctx.arc(0, 0, 30, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Body
+  ctx.fillStyle = "#2d2d2d";
+  ctx.strokeStyle = "#ff3333";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.rect(-12, -6, 24, 12);
+  ctx.fill();
+  ctx.stroke();
+
+  // Eye
+  ctx.fillStyle = "#ff3333";
+  ctx.beginPath();
+  ctx.arc(0, 0, 4, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Rotors
+  ctx.strokeStyle = "rgba(255,255,255,0.4)";
+  ctx.lineWidth = 1;
+  const rotAngle = frameCount * 0.3;
+  for (let i = 0; i < 4; i++) {
+    const a = rotAngle + i * Math.PI / 2;
     ctx.save();
-    ctx.translate(-cameraX, 0);
-
-    // ビルの描画
-    for (let b of buildings) {
-        // ビルの影
-        ctx.fillStyle = "#1a252f";
-        ctx.fillRect(b.x, b.y, b.w, b.h);
-
-        // 窓の描画（あらかじめ決まった配列を使うのでチラつかない）
-        ctx.fillStyle = "#f1c40f";
-        let winIndex = 0;
-        for (let y = b.y + 30; y < canvas.height - 20; y += 60) {
-            for (let x = 25; x < b.w - 20; x += 35) {
-                if (b.windows[winIndex % b.windows.length]) {
-                    ctx.fillRect(b.x + x, y, 10, 15);
-                }
-                winIndex++;
-            }
-        }
-    }
-
-    // ロープの描画
-    if (rope.active) {
-        ctx.strokeStyle = "white";
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(player.x, player.y);
-        ctx.lineTo(rope.ax, rope.ay);
-        ctx.stroke();
-
-        // 的（どこに刺さっているか分かりやすく）
-        ctx.fillStyle = "#00ffff";
-        ctx.beginPath();
-        ctx.arc(rope.ax, rope.ay, 5, 0, Math.PI * 2);
-        ctx.fill();
-    }
-
-    // プレイヤーの描画
-    ctx.fillStyle = "#ff3333";
+    ctx.translate(i < 2 ? -14 : 14, i % 2 === 0 ? -8 : 8);
+    ctx.rotate(a);
     ctx.beginPath();
-    ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2);
-    ctx.fill();
-
-    // スパイダー目の簡易描画
-    ctx.fillStyle = "white";
-    ctx.beginPath();
-    ctx.arc(player.x + 5, player.y - 3, 4, 0, Math.PI * 2);
-    ctx.fill();
-
+    ctx.moveTo(-8, 0); ctx.lineTo(8, 0);
+    ctx.stroke();
     ctx.restore();
+  }
+  ctx.restore();
 }
 
-// 画面サイズ変更対応
+function drawCoin(c) {
+  ctx.save();
+  ctx.translate(c.x, c.y + Math.sin(c.anim) * 5);
+
+  // Glow
+  const grd = ctx.createRadialGradient(0, 0, 0, 0, 0, 20);
+  grd.addColorStop(0, "rgba(255,214,10,0.5)");
+  grd.addColorStop(1, "rgba(255,214,10,0)");
+  ctx.fillStyle = grd;
+  ctx.beginPath();
+  ctx.arc(0, 0, 20, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Coin
+  ctx.fillStyle = "#ffd60a";
+  ctx.strokeStyle = "#e9c00a";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(0, 0, c.r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = "#c8a200";
+  ctx.font = "bold 10px monospace";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("$", 0, 0);
+  ctx.restore();
+}
+
+function draw() {
+  // Sky gradient (shifts with camera)
+  const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  grad.addColorStop(0, "#04080f");
+  grad.addColorStop(0.6, "#0d1b2a");
+  grad.addColorStop(1, "#1b2a3b");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Stars
+  ctx.fillStyle = "rgba(255,255,255,0.6)";
+  for (let i = 0; i < 80; i++) {
+    const sx = ((i * 137 + 50) % canvas.width);
+    const sy = ((i * 93 + 20) % (canvas.height * 0.6));
+    const flicker = 0.3 + 0.7 * Math.abs(Math.sin(frameCount * 0.01 + i));
+    ctx.globalAlpha = flicker * 0.5;
+    ctx.fillRect(sx, sy, 1.5, 1.5);
+  }
+  ctx.globalAlpha = 1;
+
+  ctx.save();
+  ctx.translate(-cameraX, -cameraY);
+
+  // Web trail
+  if (trail.length > 1) {
+    for (let i = 1; i < trail.length; i++) {
+      const t = trail[i];
+      ctx.strokeStyle = `rgba(200,230,255,${t.life * 0.4})`;
+      ctx.lineWidth = t.life * 2;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(trail[i-1].x, trail[i-1].y);
+      ctx.lineTo(t.x, t.y);
+      ctx.stroke();
+    }
+  }
+
+  // Buildings
+  for (let b of buildings) {
+    if (b.x - cameraX < canvas.width + 200 && b.x + b.w - cameraX > -200) {
+      drawBuilding(b);
+    }
+  }
+
+  // Coins
+  for (let c of coins) drawCoin(c);
+
+  // Drones
+  for (let d of drones) drawDrone(d);
+
+  // Rope
+  if (rope.active) {
+    const segments = 16;
+    const px = player.x, py = player.y;
+    const ax = rope.ax, ay = rope.ay;
+
+    // Glow
+    ctx.strokeStyle = "rgba(150,220,255,0.15)";
+    ctx.lineWidth = 8;
+    ctx.beginPath();
+    ctx.moveTo(px, py);
+    for (let i = 1; i <= segments; i++) {
+      const t = i / segments;
+      const sag = Math.sin(t * Math.PI) * 18 * (1 - rope.progress);
+      ctx.lineTo(px + (ax - px) * t, py + (ay - py) * t + sag);
+    }
+    ctx.stroke();
+
+    // Main rope
+    ctx.strokeStyle = "rgba(220,240,255,0.85)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(px, py);
+    for (let i = 1; i <= segments; i++) {
+      const t = i / segments;
+      const sag = Math.sin(t * Math.PI) * 10 * (1 - rope.progress);
+      ctx.lineTo(px + (ax - px) * t, py + (ay - py) * t + sag);
+    }
+    ctx.stroke();
+
+    // Anchor dot
+    ctx.fillStyle = "#88ccff";
+    ctx.beginPath();
+    ctx.arc(ax, ay, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Player
+  if (state === "playing") {
+    // Player glow
+    const pgrd = ctx.createRadialGradient(player.x, player.y, 0, player.x, player.y, 35);
+    pgrd.addColorStop(0, "rgba(230,57,70,0.3)");
+    pgrd.addColorStop(1, "rgba(230,57,70,0)");
+    ctx.fillStyle = pgrd;
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, 35, 0, Math.PI * 2);
+    ctx.fill();
+
+    drawSpiderman(player.x, player.y, player.vx, player.vy, rope.active);
+  }
+
+  // Particles
+  for (let p of particles) {
+    ctx.globalAlpha = p.life;
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  ctx.restore();
+
+  // Speed lines (at high velocity)
+  if (state === "playing") {
+    const spd = Math.hypot(player.vx, player.vy);
+    if (spd > 14) {
+      const alpha = (spd - 14) / 12;
+      ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.08})`;
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 8; i++) {
+        const lx = Math.random() * canvas.width;
+        const ly = Math.random() * canvas.height;
+        const len = 40 + Math.random() * 80;
+        const ang = Math.atan2(player.vy, player.vx);
+        ctx.beginPath();
+        ctx.moveTo(lx, ly);
+        ctx.lineTo(lx - Math.cos(ang) * len, ly - Math.sin(ang) * len);
+        ctx.stroke();
+      }
+    }
+  }
+}
+
+// ===== LOOP =====
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
 window.addEventListener("resize", () => {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
 });
 
-update();
+loop();
 </script>
-
 </body>
 </html>
