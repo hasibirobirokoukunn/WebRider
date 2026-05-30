@@ -1,250 +1,254 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Spider-Man Web Swing Game</title>
-    <style>
-        body {
-            margin: 0;
-            overflow: hidden;
-            background: linear-gradient(to bottom, #0f2027, #203a43, #2c5364);
-            font-family: 'Arial', sans-serif;
-        }
-        canvas {
-            display: block;
-        }
-        #ui {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            color: white;
-            font-size: 24px;
-            font-weight: bold;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
-            pointer-events: none;
-        }
-        #instructions {
-            position: absolute;
-            bottom: 20px;
-            width: 100%;
-            text-align: center;
-            color: #ff3333;
-            font-size: 18px;
-            font-weight: bold;
-            text-shadow: 1px 1px 2px black;
-            pointer-events: none;
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spider Swing - Fixed</title>
+
+<style>
+body {
+    margin: 0;
+    overflow: hidden;
+    background: linear-gradient(to bottom, #0f2027, #203a43, #2c5364);
+}
+canvas {
+    display: block;
+}
+#ui {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    color: white;
+    font-family: Arial;
+    font-size: 18px;
+    font-weight: bold;
+    text-shadow: 1px 1px 2px black;
+}
+</style>
 </head>
+
 <body>
 
-    <div id="ui">SCORE: <span id="score">0</span></div>
-    <div id="instructions">画面をマウスクリック（またはタップ）で上のビルにウェブを発射！</div>
-    <canvas id="gameCanvas"></canvas>
+<div id="ui">SCORE: <span id="score">0</span></div>
+<canvas id="game"></canvas>
 
-    <script>
-        const canvas = document.getElementById("gameCanvas");
-        const ctx = canvas.getContext("2d");
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
 
-        // 画面サイズ設定
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
 
-        // ゲームの定数
-        const GRAVITY = 0.4;
-        const ROPE_SLACK = 1.05; // ロープの遊び
+// ===== 物理 =====
+const GRAVITY = 0.3;       // 重力を少し強めて自然に
+const ROPE_POWER = 0.2;    // ロープの引っ張り強度
 
-        // プレイヤー（スパイダーマン風の球体）
-        const player = {
-            x: 200,
-            y: canvas.height / 2,
-            vx: 5,
-            vy: 0,
-            radius: 15,
-            color: "#ff3333" // スパイダーレッド
-        };
+// ===== プレイヤー =====
+const player = {
+    x: 200,
+    y: canvas.height / 2,
+    vx: 5,
+    vy: 0,
+    r: 15
+};
 
-        // ウェブ（ロープ）の状態
-        let rope = {
-            active: false,
-            anchorX: 0,
-            anchorY: 0,
-            length: 0
-        };
+// ===== カメラ =====
+let cameraX = 0;
 
-        // ビル（天井のアンカーポイント用）の並び
-        let buildings = [];
-        function createBuildings() {
-            buildings = [];
-            for (let i = 0; i < 20; i++) {
-                buildings.push({
-                    x: i * 300 + Math.random() * 100,
-                    y: 50 + Math.random() * 100,
-                    width: 120,
-                    height: 200
-                });
-            }
-        }
-        createBuildings();
+// ===== ロープ =====
+let rope = {
+    active: false,
+    ax: 0,
+    ay: 0,
+    len: 0
+};
 
-        let score = 0;
+// ===== ビル =====
+let buildings = [];
 
-        // マウス・タップイベント
-        window.addEventListener("mousedown", (e) => attachRope(e.clientX, e.clientY));
-        window.addEventListener("mouseup", detachRope);
-        window.addEventListener("touchstart", (e) => attachRope(e.touches[0].clientX, e.touches[0].clientY));
-        window.addEventListener("touchend", detachRope);
-
-        function attachRope(mouseX, mouseY) {
-            // プレイヤーより上にある、一番近いビルを探してウェブを固定する
-            let closestBuilding = null;
-            let minDist = 99999;
-
-            buildings.forEach(b => {
-                let anchorX = b.x + b.width / 2;
-                let anchorY = b.y;
-                let dist = Math.hypot(anchorX - player.x, anchorY - player.y);
-                
-                if (dist < minDist && anchorY < player.y) {
-                    minDist = dist;
-                    closestBuilding = b;
-                }
-            });
-
-            if (closestBuilding) {
-                rope.anchorX = closestBuilding.x + closestBuilding.width / 2;
-                rope.anchorY = closestBuilding.y;
-                rope.length = Math.hypot(rope.anchorX - player.x, rope.anchorY - player.y) * ROPE_SLACK;
-                rope.active = true;
-            }
-        }
-
-        function detachRope() {
-            rope.active = false;
-        }
-
-        // ゲームループ
-        function update() {
-            // 重力の適用
-            player.vy += GRAVITY;
-
-            // ウェブ（ロープ）の物理演算（振り子運動）
-            if (rope.active) {
-                let dx = player.x - rope.anchorX;
-                let dy = player.y - rope.anchorY;
-                let dist = Math.hypot(dx, dy);
-
-                // ロープが張り詰めたら、引っ張られる処理
-                if (dist > rope.length) {
-                    let nx = dx / dist;
-                    let ny = dy / dist;
-
-                    // ロープ方向の速度成分を消す
-                    let velAlongNormal = player.vx * nx + player.vy * ny;
-                    if (velAlongNormal > 0) {
-                        player.vx -= velAlongNormal * nx;
-                        player.vy -= velAlongNormal * ny;
-                    }
-
-                    // 位置の強制補正
-                    player.x = rope.anchorX + nx * rope.length;
-                    player.y = rope.anchorY + ny * rope.length;
-                }
-            }
-
-            // 位置の更新
-            player.x += player.vx;
-            player.y += player.vy;
-
-            // カメラの追従（プレイヤーが画面中央にくるように背景を動かす）
-            let cameraX = player.x - 200;
-
-            // ビルが画面外に消えたら右側に再配置（無限スクロール）
-            buildings.forEach(b => {
-                if (b.x - cameraX < -200) {
-                    b.x += 200 * 30; 
-                }
-            });
-
-            // スコア更新
-            score = Math.max(score, Math.floor(player.x / 10));
-            document.getElementById("score").innerText = score;
-
-            // ゲームオーバー判定（画面下に落ちたらリセット）
-            if (player.y > canvas.height + 50) {
-                alert("ゲームオーバー！ スコア: " + score);
-                player.x = 200;
-                player.y = canvas.height / 2;
-                player.vx = 5;
-                player.vy = 0;
-                rope.active = false;
-                createBuildings();
-            }
-
-            // --- 描画処理 ---
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            ctx.save();
-            ctx.translate(-cameraX, 0);
-
-            // ビル（背景）の描画
-            buildings.forEach(b => {
-                ctx.fillStyle = "#1a252f";
-                ctx.fillRect(b.x, b.y, b.width, canvas.height);
-                // 窓の明かり
-                ctx.fillStyle = "#f1c40f";
-                for (let wx = b.x + 15; wx < b.x + b.width - 15; wx += 30) {
-                    for (let wy = b.y + 20; wy < canvas.height; wy += 40) {
-                        if (Math.random() > 0.3) ctx.fillRect(wx, wy, 10, 15);
-                    }
-                }
-            });
-
-            // クモの糸（ウェブ）の描画
-            if (rope.active) {
-                ctx.strokeStyle = "#ffffff";
-                ctx.lineWidth = 3;
-                ctx.beginPath();
-                ctx.moveTo(player.x, player.y);
-                ctx.lineTo(rope.anchorX, rope.anchorY);
-                ctx.stroke();
-                
-                // アンカーポイントの光効果
-                ctx.fillStyle = "#00ffff";
-                ctx.beginPath();
-                ctx.arc(rope.anchorX, rope.anchorY, 6, 0, Math.PI * 2);
-                ctx.fill();
-            }
-
-            // プレイヤー（スパイダーマン）の描画
-            ctx.fillStyle = player.color;
-            ctx.beginPath();
-            ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
-            ctx.fill();
-            
-            // スパイダーマークっぽい模様（簡易）
-            ctx.strokeStyle = "#000000";
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(player.x - player.radius, player.y);
-            ctx.lineTo(player.x + player.radius, player.y);
-            ctx.moveTo(player.x, player.y - player.radius);
-            ctx.lineTo(player.x, player.y + player.radius);
-            ctx.stroke();
-
-            ctx.restore();
-
-            requestAnimationFrame(update);
-        }
-
-        update();
-
-        // 画面サイズ変更対応
-        window.addEventListener("resize", () => {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
+function createBuildings() {
+    buildings = [];
+    for (let i = 0; i < 40; i++) {
+        let bHeight = 250 + Math.random() * 250; // ビルの高さ
+        buildings.push({
+            x: i * 300,
+            w: 140,
+            h: bHeight,
+            y: canvas.height - bHeight, // 画面の下から生えるように計算
+            // 窓の配置をあらかじめデータとして持たせてチラつきを防止
+            windows: Array.from({length: 8}, () => Math.random() > 0.4) 
         });
-    </script>
+    }
+}
+
+createBuildings();
+
+// ===== スコア =====
+let score = 0;
+
+// ===== 入力 =====
+window.addEventListener("mousedown", (e) => shoot(e.clientX, e.clientY));
+window.addEventListener("mouseup", () => rope.active = false);
+window.addEventListener("touchstart", (e) => shoot(e.touches[0].clientX, e.touches[0].clientY));
+window.addEventListener("touchend", () => rope.active = false);
+
+// ===== ロープ発射 =====
+function shoot(mx, my) {
+    // クリックした画面の座標を、ゲーム内の絶対座標に変換
+    let targetX = mx + cameraX;
+    let targetY = my;
+
+    let dx = targetX - player.x;
+    let dy = targetY - player.y;
+
+    let dist = Math.hypot(dx, dy);
+    if (dist === 0) return;
+
+    let dxn = dx / dist;
+    let dyn = dy / dist;
+
+    // プレイヤーからクリック方向へ少しずつ探索（レイキャスト）
+    for (let i = 0; i < 1000; i += 10) {
+        let px = player.x + dxn * i;
+        let py = player.y + dyn * i;
+
+        for (let b of buildings) {
+            // 線がビルの範囲（上部含む）に入ったか判定
+            if (px > b.x && px < b.x + b.w && py > b.y && py < canvas.height) {
+                // ビルの屋上の中心にロープを固定
+                rope.ax = b.x + b.w / 2;
+                rope.ay = b.y;
+                rope.len = Math.hypot(rope.ax - player.x, rope.ay - player.y) * 1.05;
+                rope.active = true;
+                return;
+            }
+        }
+    }
+}
+
+// ===== 更新 =====
+function update() {
+    // 重力
+    player.vy += GRAVITY;
+
+    // ロープ物理
+    if (rope.active) {
+        let dx = player.x - rope.ax;
+        let dy = player.y - rope.ay;
+        let dist = Math.hypot(dx, dy);
+
+        // ロープの長さを超えたら引っ張る力を加える
+        if (dist > rope.len) {
+            let nx = dx / dist;
+            let ny = dy / dist;
+            let stretch = dist - rope.len;
+
+            player.vx -= nx * stretch * ROPE_POWER;
+            player.vy -= ny * stretch * ROPE_POWER;
+            
+            // スイング中の空気抵抗（これがあると動きが安定します）
+            player.vx *= 0.995;
+            player.vy *= 0.995;
+        }
+    }
+
+    // 移動
+    player.x += player.vx;
+    player.y += player.vy;
+
+    // カメラの追従
+    cameraX = player.x - 200;
+
+    // 無限ビル（通り過ぎたら前方に移動）
+    for (let b of buildings) {
+        if (b.x - cameraX < -300) {
+            b.x += buildings.length * 300;
+        }
+    }
+
+    // スコア
+    score = Math.max(score, Math.floor(player.x / 10));
+    document.getElementById("score").innerText = score;
+
+    // 死亡判定（画面下に落ちたらリセット）
+    if (player.y > canvas.height + 100) {
+        player.x = 200;
+        player.y = canvas.height / 2;
+        player.vx = 5;
+        player.vy = 0;
+        rope.active = false;
+        createBuildings(); // ビルを再配置
+    }
+
+    draw();
+    requestAnimationFrame(update);
+}
+
+// ===== 描画 =====
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    ctx.save();
+    ctx.translate(-cameraX, 0);
+
+    // ビルの描画
+    for (let b of buildings) {
+        // ビルの影
+        ctx.fillStyle = "#1a252f";
+        ctx.fillRect(b.x, b.y, b.w, b.h);
+
+        // 窓の描画（あらかじめ決まった配列を使うのでチラつかない）
+        ctx.fillStyle = "#f1c40f";
+        let winIndex = 0;
+        for (let y = b.y + 30; y < canvas.height - 20; y += 60) {
+            for (let x = 25; x < b.w - 20; x += 35) {
+                if (b.windows[winIndex % b.windows.length]) {
+                    ctx.fillRect(b.x + x, y, 10, 15);
+                }
+                winIndex++;
+            }
+        }
+    }
+
+    // ロープの描画
+    if (rope.active) {
+        ctx.strokeStyle = "white";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(player.x, player.y);
+        ctx.lineTo(rope.ax, rope.ay);
+        ctx.stroke();
+
+        // 的（どこに刺さっているか分かりやすく）
+        ctx.fillStyle = "#00ffff";
+        ctx.beginPath();
+        ctx.arc(rope.ax, rope.ay, 5, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // プレイヤーの描画
+    ctx.fillStyle = "#ff3333";
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // スパイダー目の簡易描画
+    ctx.fillStyle = "white";
+    ctx.beginPath();
+    ctx.arc(player.x + 5, player.y - 3, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+}
+
+// 画面サイズ変更対応
+window.addEventListener("resize", () => {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+});
+
+update();
+</script>
+
 </body>
 </html>
