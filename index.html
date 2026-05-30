@@ -64,17 +64,26 @@ let rope = {
 let buildings = [];
 function createBuildings() {
     buildings = [];
+
     for (let i = 0; i < 30; i++) {
+
+        let windows = [];
+
+        // 窓のON/OFFを最初に決める
+        for (let y = 0; y < 6; y++) {
+            for (let x = 0; x < 3; x++) {
+                windows.push(Math.random() > 0.5);
+            }
+        }
+
         buildings.push({
             x: i * 300,
             w: 120,
-            h: 300
+            h: 300,
+            windows: windows
         });
     }
 }
-createBuildings();
-
-let score = 0;
 
 // 🎮 入力
 window.addEventListener("mousedown", e => shootRope(e.clientX, e.clientY));
@@ -189,19 +198,20 @@ function draw() {
     ctx.fillStyle = "#1a252f";
     for (let b of buildings) {
         ctx.fillRect(b.x, 0, b.w, canvas.height);
+ctx.fillStyle = "#f1c40f";
 
-        // 🌟 窓（固定でチラつかない）
-        ctx.fillStyle = "#f1c40f";
-        for (let wx = b.x + 15; wx < b.x + b.w; wx += 30) {
-            for (let wy = 30; wy < canvas.height; wy += 50) {
-                if (Math.random() > 0.85) {
-                    ctx.fillRect(wx, wy, 8, 12);
-                }
-            }
+let index = 0;
+
+for (let wx = b.x + 15; wx < b.x + b.w; wx += 30) {
+    for (let wy = 30; wy < 300; wy += 50) {
+
+        if (b.windows[index]) {
+            ctx.fillRect(wx, wy, 8, 12);
         }
-        ctx.fillStyle = "#1a252f";
-    }
 
+        index++;
+    }
+}
     // 🪢 ロープ
     if (rope.active) {
         ctx.strokeStyle = "white";
