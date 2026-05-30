@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Spider Swing</title>
+<title>Spider Swing Game</title>
 
 <style>
 body {
@@ -11,13 +11,16 @@ body {
     overflow: hidden;
     background: linear-gradient(to bottom, #0f2027, #203a43, #2c5364);
 }
-canvas { display:block; }
+canvas {
+    display: block;
+}
 #ui {
-    position:absolute;
-    top:10px;
-    left:10px;
-    color:white;
-    font-size:20px;
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    color: white;
+    font-size: 20px;
+    font-family: Arial;
 }
 </style>
 </head>
@@ -33,41 +36,39 @@ const ctx = canvas.getContext("2d");
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
-// 🌍 重力（弱くした）
-const GRAVITY = 0.2;
-const ROPE_SLACK = 1.05;
+// 🌍 物理
+const GRAVITY = 0.25;
+const ROPE_STRENGTH = 0.15;
 
-// 🧍 プレイヤー（最初落下しないように安定）
+// 🧍 プレイヤー（最初から安定）
 const player = {
     x: 200,
     y: canvas.height / 2,
     vx: 5,
     vy: 0,
-    radius: 15,
-    color: "#ff3333"
+    r: 15
 };
 
-// 🧠 カメラ（重要：グローバル化）
+// 🎥 カメラ
 let cameraX = 0;
 
 // 🪢 ロープ
 let rope = {
     active: false,
-    anchorX: 0,
-    anchorY: 0,
-    length: 0
+    ax: 0,
+    ay: 0,
+    len: 0
 };
 
-// 🏙 ビル生成
+// 🏙 ビル
 let buildings = [];
 function createBuildings() {
     buildings = [];
     for (let i = 0; i < 30; i++) {
         buildings.push({
             x: i * 300,
-            y: 100,
-            width: 120,
-            height: 400
+            w: 120,
+            h: 300
         });
     }
 }
@@ -76,42 +77,43 @@ createBuildings();
 let score = 0;
 
 // 🎮 入力
-window.addEventListener("mousedown", (e) => attachRope(e.clientX, e.clientY));
+window.addEventListener("mousedown", e => shootRope(e.clientX, e.clientY));
 window.addEventListener("mouseup", () => rope.active = false);
-window.addEventListener("touchstart", (e) => attachRope(e.touches[0].clientX, e.touches[0].clientY));
+window.addEventListener("touchstart", e => shootRope(e.touches[0].clientX, e.touches[0].clientY));
 window.addEventListener("touchend", () => rope.active = false);
 
-// 🪢 ロープ発射（クリック方向）
-function attachRope(mouseX, mouseY) {
+// 🪢 ロープ発射
+function shootRope(mx, my) {
 
-    let dx = mouseX + cameraX - player.x;
-    let dy = mouseY - player.y;
+    let dx = mx + cameraX - player.x;
+    let dy = my - player.y;
 
-    let length = Math.hypot(dx, dy);
-    if (length === 0) return;
+    let dist = Math.hypot(dx, dy);
+    if (dist === 0) return;
 
-    let dirX = dx / length;
-    let dirY = dy / length;
+    let dxn = dx / dist;
+    let dyn = dy / dist;
 
-    let step = 20;
     let maxDist = 800;
 
-    for (let i = 0; i < maxDist; i += step) {
-        let checkX = player.x + dirX * i;
-        let checkY = player.y + dirY * i;
+    for (let i = 0; i < maxDist; i += 20) {
+
+        let px = player.x + dxn * i;
+        let py = player.y + dyn * i;
 
         for (let b of buildings) {
             if (
-                checkX > b.x &&
-                checkX < b.x + b.width &&
-                checkY > b.y
+                px > b.x &&
+                px < b.x + b.w &&
+                py > 0 &&
+                py < canvas.height
             ) {
-                rope.anchorX = b.x + b.width / 2;
-                rope.anchorY = b.y;
-                rope.length = Math.hypot(
-                    rope.anchorX - player.x,
-                    rope.anchorY - player.y
-                ) * ROPE_SLACK;
+                rope.ax = b.x + b.w / 2;
+                rope.ay = 0;
+                rope.len = Math.hypot(
+                    rope.ax - player.x,
+                    rope.ay - player.y
+                ) * 1.05;
 
                 rope.active = true;
                 return;
@@ -120,28 +122,27 @@ function attachRope(mouseX, mouseY) {
     }
 }
 
-// 🎮 メインループ
+// 🎮 更新
 function update() {
 
-    // 🌍 重力（弱め）
+    // 🌍 重力
     player.vy += GRAVITY;
 
-    // 🪢 ロープ物理（バネ）
+    // 🪢 ロープ
     if (rope.active) {
-        let dx = player.x - rope.anchorX;
-        let dy = player.y - rope.anchorY;
+        let dx = player.x - rope.ax;
+        let dy = player.y - rope.ay;
 
         let dist = Math.hypot(dx, dy);
 
-        if (dist > rope.length) {
+        if (dist > rope.len) {
             let nx = dx / dist;
             let ny = dy / dist;
 
-            let stretch = dist - rope.length;
-            let strength = 0.15;
+            let stretch = dist - rope.len;
 
-            player.vx -= nx * stretch * strength;
-            player.vy -= ny * stretch * strength;
+            player.vx -= nx * stretch * ROPE_STRENGTH;
+            player.vy -= ny * stretch * ROPE_STRENGTH;
         }
     }
 
@@ -155,7 +156,7 @@ function update() {
     // 🏙 無限ビル
     for (let b of buildings) {
         if (b.x - cameraX < -300) {
-            b.x += 300 * buildings.length;
+            b.x += buildings.length * 300;
         }
     }
 
@@ -164,7 +165,7 @@ function update() {
     document.getElementById("score").innerText = score;
 
     // 💀 落下リセット
-    if (player.y > canvas.height + 100) {
+    if (player.y > canvas.height + 200) {
         player.x = 200;
         player.y = canvas.height / 2;
         player.vx = 5;
@@ -172,8 +173,14 @@ function update() {
         rope.active = false;
     }
 
-    // 🎨 描画
-    ctx.clearRect(0,0,canvas.width,canvas.height);
+    draw();
+    requestAnimationFrame(update);
+}
+
+// 🎨 描画
+function draw() {
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     ctx.save();
     ctx.translate(-cameraX, 0);
@@ -181,7 +188,18 @@ function update() {
     // 🏙 ビル
     ctx.fillStyle = "#1a252f";
     for (let b of buildings) {
-        ctx.fillRect(b.x, b.y, b.width, canvas.height);
+        ctx.fillRect(b.x, 0, b.w, canvas.height);
+
+        // 🌟 窓（固定でチラつかない）
+        ctx.fillStyle = "#f1c40f";
+        for (let wx = b.x + 15; wx < b.x + b.w; wx += 30) {
+            for (let wy = 30; wy < canvas.height; wy += 50) {
+                if (Math.random() > 0.85) {
+                    ctx.fillRect(wx, wy, 8, 12);
+                }
+            }
+        }
+        ctx.fillStyle = "#1a252f";
     }
 
     // 🪢 ロープ
@@ -189,19 +207,17 @@ function update() {
         ctx.strokeStyle = "white";
         ctx.beginPath();
         ctx.moveTo(player.x, player.y);
-        ctx.lineTo(rope.anchorX, rope.anchorY);
+        ctx.lineTo(rope.ax, rope.ay);
         ctx.stroke();
     }
 
     // 🧍 プレイヤー
-    ctx.fillStyle = player.color;
+    ctx.fillStyle = "red";
     ctx.beginPath();
-    ctx.arc(player.x, player.y, player.radius, 0, Math.PI*2);
+    ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
-
-    requestAnimationFrame(update);
 }
 
 update();
